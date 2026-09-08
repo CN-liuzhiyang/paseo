@@ -130,6 +130,10 @@ function fileHeaderNameStyle(showsBodyState: boolean, isHovered: boolean) {
   ];
 }
 
+function childTestID(testID: string | undefined, suffix: string): string | undefined {
+  return testID ? `${testID}-${suffix}` : undefined;
+}
+
 function fileChange(file: ParsedDiffFile): "added" | "deleted" | "modified" {
   return diffFileChangeKind(file);
 }
@@ -199,7 +203,11 @@ export const FileHeader = memo(function FileHeader({
   onActiveChange,
   ...actions
 }: FileHeaderProps) {
-  const hover = useFileHeaderHover(interactive, onActiveChange);
+  // A commit diff header collapses on press but owns no working-tree actions, so
+  // press and hover follow `onActivate` while the drag source and the actions menu
+  // stay behind `interactive`.
+  const pressable = interactive || Boolean(onActivate);
+  const hover = useFileHeaderHover(pressable, onActiveChange);
   const dragSourceRef = useWorkspaceFileDragSource({
     enabled: interactive,
     disabled: file.isDeleted,
@@ -209,7 +217,7 @@ export const FileHeader = memo(function FileHeader({
   });
   const interaction = useFileHeaderInteraction({
     path: file.path,
-    enabled: interactive,
+    enabled: pressable,
     onSelect,
     onActivate,
     onLayout: useCallback(
@@ -253,7 +261,7 @@ export const FileHeader = memo(function FileHeader({
   const content = (
     <View
       style={[styles.content, showsBodyState && styles.documentContent]}
-      testID={testID ? `${testID}-header-content` : undefined}
+      testID={childTestID(testID, "header-content")}
     >
       <View ref={dragSourceRef} style={showDir ? styles.left : [styles.left, styles.leftTree]}>
         {showDir ? null : (
@@ -261,7 +269,7 @@ export const FileHeader = memo(function FileHeader({
             <MaterialFileIcon fileName={fileName} size={WORKSPACE_TREE_ICON_SIZE} />
           </View>
         )}
-        <Text style={nameStyle} numberOfLines={1} testID={testID ? `${testID}-name` : undefined}>
+        <Text style={nameStyle} numberOfLines={1} testID={childTestID(testID, "name")}>
           {fileName}
         </Text>
         {showDir ? (
@@ -276,7 +284,7 @@ export const FileHeader = memo(function FileHeader({
         <DiffStat
           additions={file.additions}
           deletions={file.deletions}
-          testID={testID ? `${testID}-stat` : undefined}
+          testID={childTestID(testID, "stat")}
         />
         {changeIcon}
       </View>
@@ -302,10 +310,11 @@ export const FileHeader = memo(function FileHeader({
     [onActiveChange],
   );
   let trigger: ReactElement;
-  if (interactive) {
+  if (pressable) {
     trigger = (
       <ContextMenuTrigger
-        testID={testID ? `${testID}-toggle` : undefined}
+        enabled={interactive}
+        testID={childTestID(testID, "toggle")}
         style={canvasPressableStyle}
         highlightStyle={fileHeaderPressFeedbackStyle(showsBodyState, canvasRendered)}
         onPressIn={handlePressIn}

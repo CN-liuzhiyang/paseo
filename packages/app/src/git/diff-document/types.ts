@@ -2,8 +2,15 @@ import type { ParsedDiffFile } from "@getpaseo/protocol/messages";
 import type { InlineReviewActions } from "@/review";
 import type { ReviewableDiffTarget } from "@/utils/diff-layout";
 
+export interface DiffCollapseState {
+  paths: readonly string[];
+  onChange: (paths: string[]) => void;
+}
+
 interface DiffDocumentBaseProps {
   files: ParsedDiffFile[];
+  /** Collapsed file paths and the sink that persists them. Every mode collapses. */
+  collapseState: DiffCollapseState;
   displayPreferences: {
     layout: "unified" | "split";
     wrapLines: boolean;
@@ -31,17 +38,9 @@ export interface WorkingDiffMode {
   onRevert?: (path: string, oldPath?: string) => void;
 }
 
-export type DiffDocumentProps = DiffDocumentBaseProps &
-  (
-    | {
-        mode: WorkingDiffMode;
-        collapseState: {
-          paths: readonly string[];
-          onChange: (paths: string[]) => void;
-        };
-      }
-    | { mode: { kind: "commit" }; collapseState?: never }
-  );
+export type DiffDocumentProps = DiffDocumentBaseProps & {
+  mode: WorkingDiffMode | { kind: "commit" };
+};
 
 export interface DiffTypography {
   family: string;
