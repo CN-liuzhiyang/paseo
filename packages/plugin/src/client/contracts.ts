@@ -30,6 +30,14 @@ interface PluginNavigableHostProps extends PluginHostProps {
   readonly navigation?: {
     readonly openAgent: (input: { readonly agentId: string }) => void;
     readonly openWorkspace: (input: { readonly workspaceId: string }) => void;
+    /**
+     * Opens Paseo's commit diff tab for `sha` in `workspaceId`. Undefined on hosts
+     * that predate it; fall back or hide the affordance when absent.
+     */
+    readonly openCommitDiff?: (input: {
+      readonly workspaceId: string;
+      readonly sha: string;
+    }) => void;
   };
 }
 
