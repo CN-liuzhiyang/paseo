@@ -19,6 +19,7 @@ import { useAddFileToChat } from "@/panels/use-add-file-to-chat";
 import { useWorkspaceDirectory } from "@/stores/session-store-hooks";
 import type { WorkspaceTabTarget } from "@/workspace-tabs/model";
 import { defaultChangesState, changesStateSchema } from "@/panels/changes/state";
+import { commitDiffStateSchema, defaultCommitDiffState } from "@/panels/commit-diff/state";
 import { usePanelState } from "@/panels/use-panel-state";
 import { RenderProfile } from "@/utils/render-profiler";
 
@@ -162,6 +163,18 @@ function CommitDiffPanel() {
     enabled: Boolean(cwd),
   });
   const mode = useMemo(() => ({ kind: "commit" as const }), []);
+  const [commitDiffState, setCommitDiffState] = usePanelState(
+    commitDiffStateSchema,
+    defaultCommitDiffState,
+  );
+  const setCollapsedFilePaths = useCallback(
+    (collapsedFilePaths: string[]) => setCommitDiffState({ collapsedFilePaths }),
+    [setCommitDiffState],
+  );
+  const collapseState = useMemo(
+    () => ({ paths: commitDiffState.collapsedFilePaths, onChange: setCollapsedFilePaths }),
+    [commitDiffState.collapsedFilePaths, setCollapsedFilePaths],
+  );
 
   let body: ReactNode;
   if (!cwd) {
@@ -185,6 +198,7 @@ function CommitDiffPanel() {
     body = (
       <DiffDocument
         files={files}
+        collapseState={collapseState}
         displayPreferences={panelPreferences.displayPreferences}
         mode={mode}
       />

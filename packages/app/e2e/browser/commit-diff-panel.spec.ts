@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect } from "../support/fixtures";
 import { openChangesTreePanel } from "../support/helpers/workspace-tabs";
 
@@ -86,6 +86,35 @@ test("commit history shows dates and shares diff layout preferences", async ({
   await expect(panel.getByTestId("commit-diff-toolbar")).toHaveCount(0);
   await expect(panel.getByTestId("git-diff-canvas")).toBeVisible();
 });
+
+test("a commit diff file collapses and expands from its header", async ({
+  page,
+  withWorkspace,
+}) => {
+  const workspace = await withWorkspace({ prefix: "commit-diff-collapse-" });
+  await createFeatureCommit(workspace.repoPath);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await workspace.navigateTo();
+
+  const panel = await openCommitDiff(page);
+  await panel.getByTestId("diff-file-0").click();
+  await expect(panel.getByTestId("diff-file-0-body")).not.toBeVisible();
+
+  await panel.getByTestId("diff-file-0").click();
+  await expect(panel.getByTestId("diff-file-0-body")).toBeVisible();
+});
+
+/** Opens the Commits section, selects the only commit, and returns its diff panel. */
+async function openCommitDiff(page: Page): Promise<Locator> {
+  await openChangesTreePanel(page);
+  const commitsSection = page.getByRole("button", { name: /Commits/i });
+  await expect(commitsSection).toBeVisible({ timeout: 30_000 });
+  await commitsSection.click();
+  await page.locator('[data-testid^="commit-row-"]').filter({ hasText: COMMIT_SUBJECT }).click();
+  const panel = page.getByTestId("commit-diff-panel").filter({ visible: true });
+  await expect(panel.getByTestId("git-diff-canvas")).toBeVisible({ timeout: 30_000 });
+  return panel;
+}
 
 async function createFeatureCommit(repoPath: string): Promise<void> {
   execFileSync("git", ["checkout", "-b", "feature"], { cwd: repoPath, stdio: "ignore" });

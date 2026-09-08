@@ -12,19 +12,16 @@ type ThemedDiffDocumentProps = DiffDocumentProps & {
   headerTypography: DiffHeaderTypography;
 };
 
-const EMPTY_PATHS: string[] = [];
-
 function ThemedDiffDocument(props: ThemedDiffDocumentProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const paletteRef = useRef(props.palette);
   paletteRef.current = retainDiffPalette(paletteRef.current, props.palette);
   const palette = paletteRef.current;
-  const collapseState = props.mode.kind === "working" ? props.collapseState : null;
-  const paths = collapseState?.paths ?? EMPTY_PATHS;
+  const collapseState = props.collapseState;
+  const paths = collapseState.paths;
   const collapsedFilePaths = useMemo(() => new Set(paths), [paths]);
   const toggleFile = useCallback(
     (path: string) => {
-      if (!collapseState) return;
       const next = collapsedFilePaths.has(path)
         ? paths.filter((entry) => entry !== path)
         : [...paths, path];

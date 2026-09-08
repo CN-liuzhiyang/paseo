@@ -169,6 +169,9 @@ export function ContextMenuTrigger({
   const handleContextMenu = useCallback(
     (event: unknown) => {
       if (isNative) return;
+      // A disabled trigger owns no menu, so it must let the event reach whatever
+      // encloses it instead of swallowing the right click and showing nothing.
+      if (!shouldEnableOnThisPlatform || disabled) return;
       if (typeof event === "object" && event !== null) {
         const preventDefault = Reflect.get(event, "preventDefault");
         const stopPropagation = Reflect.get(event, "stopPropagation");
@@ -178,7 +181,7 @@ export function ContextMenuTrigger({
       onContextMenu?.(event);
       openAtEvent(event);
     },
-    [onContextMenu, openAtEvent],
+    [disabled, onContextMenu, openAtEvent, shouldEnableOnThisPlatform],
   );
 
   const resolveDynamicStyle = useCallback(

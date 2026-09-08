@@ -24,8 +24,7 @@ export const DocumentFileHeader = memo(function DocumentFileHeader({
 }: DocumentFileHeaderProps) {
   const activate = useCallback(
     (path: string) => {
-      if (mode.kind !== "working") return;
-      mode.onFilePress?.(path);
+      if (mode.kind === "working") mode.onFilePress?.(path);
       onToggleFile(path);
     },
     [mode, onToggleFile],
