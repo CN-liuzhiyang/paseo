@@ -13,6 +13,9 @@ vi.mock("@/utils/navigate-to-agent", () => ({
 vi.mock("@/stores/navigation-active-workspace-store", () => ({
   navigateToWorkspace: vi.fn(),
 }));
+vi.mock("@/stores/workspace-layout-actions", () => ({
+  FOCUSED_PANE_PLACEMENT: { mode: "focused" },
+}));
 
 const navigateToAgentMock = vi.mocked(navigateToAgent);
 const navigateToWorkspaceMock = vi.mocked(navigateToWorkspace);
@@ -33,6 +36,19 @@ describe("usePluginHostNavigation", () => {
     expect(navigateToWorkspaceMock).toHaveBeenCalledWith({
       serverId: "host-1",
       workspaceId: "workspace-1",
+    });
+  });
+
+  it("opens a commit diff tab in the focused pane of the named workspace", () => {
+    const { result } = renderHook(() => usePluginHostNavigation("host-1"));
+
+    act(() => result.current.openCommitDiff?.({ workspaceId: "workspace-1", sha: "abc1234" }));
+
+    expect(navigateToWorkspaceMock).toHaveBeenCalledWith({
+      serverId: "host-1",
+      workspaceId: "workspace-1",
+      target: { kind: "commit_diff", sha: "abc1234" },
+      placement: { mode: "focused" },
     });
   });
 
