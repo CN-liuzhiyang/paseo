@@ -37,9 +37,15 @@ The required check is the gate. The hook is fast feedback so you find out in
 two seconds instead of two minutes, and a teammate who never sets it up is
 still stopped by the check.
 
-Internal names belong in the `FORK_GUARD_EXTRA_PATTERNS` repository secret.
-`forbidden-patterns.txt` is committed to a public repo and holds only patterns
-generic enough to publish.
+`forbidden-patterns.txt` stays generic — private IP ranges, `.corp`/`.internal`
+hostname shapes, committed credentials. It will not recognise your own
+hostnames, and it should not: this repository and its CI logs are public, and
+the checker prints the pattern that matched, so a list of your internal names
+would publish them the first time someone tripped it.
+
+So the safety net catches shapes, and people catch the rest. The disposition
+label on every PR is what makes that a decision someone has to make out loud
+rather than one that gets skipped.
 
 ## The fork carries extension points, not features
 

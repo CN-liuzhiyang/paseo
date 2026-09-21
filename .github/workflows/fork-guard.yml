@@ -43,9 +43,6 @@ jobs:
         env:
           FORK_GUARD_MIRROR: origin/main
           FORK_GUARD_WORK: HEAD
-          # Internal hostnames and project names live here, not in the
-          # committed pattern file. This repository is public.
-          FORK_GUARD_EXTRA_PATTERNS: ${{ secrets.FORK_GUARD_EXTRA_PATTERNS }}
         run: node fork-tools/check-delta.mjs
 
   classification:

@@ -55,6 +55,8 @@ function addedLines() {
   return results;
 }
 
+const IS_CI = Boolean(process.env.CI ?? process.env.GITHUB_ACTIONS);
+
 let failed = false;
 
 // --- Red line -------------------------------------------------------------
@@ -70,7 +72,15 @@ if (rules.length > 0) {
 if (hits.length > 0) {
   failed = true;
   console.error(`RED LINE: ${hits.length} project-specific reference(s) in the fork delta.\n`);
-  for (const hit of hits) console.error(`  ${hit.file}\n    /${hit.rule}/  ${hit.text}`);
+  // CI logs on this repository are public. Naming the pattern that matched, or
+  // echoing the line, would publish the thing the red line exists to keep out.
+  // Report the file and let the author run this locally for the detail.
+  if (IS_CI) {
+    for (const file of [...new Set(hits.map((hit) => hit.file))]) console.error(`  ${file}`);
+    console.error("\nRun `node fork-tools/check-delta.mjs` locally to see which lines matched.");
+  } else {
+    for (const hit of hits) console.error(`  ${hit.file}\n    /${hit.rule}/  ${hit.text}`);
+  }
   console.error(
     "\nThis belongs in a private plugin, not in core. See localdocs/fork-strategy.md.\n",
   );

@@ -1,11 +1,16 @@
 # Regexes (case-insensitive) that must never appear in lines this fork ADDS on
 # top of upstream. One per line; # starts a comment.
 #
-# THIS FILE IS PUBLIC. Do not put internal hostnames, project code names, or
-# team names here — that leaks them. Those belong in the
-# FORK_GUARD_EXTRA_PATTERNS repository secret, same format.
+# THIS REPOSITORY IS PUBLIC, and so are its CI logs. Do not add your own
+# hostnames, project code names, or team names here, and do not feed them in
+# through FORK_GUARD_EXTRA_PATTERNS either: a pattern that matches gets its
+# source printed, so the first breach would publish the very string you were
+# hiding. (The CI path prints only file names for the same reason.)
 #
-# Keep this list to shapes that are generic enough to publish.
+# That leaves this list generic on purpose. It is a safety net for the obvious
+# shapes, not a filter that understands your organisation. Keeping
+# project-specific code out of core stays a human decision, made at review
+# time, with the disposition label as the prompt.
 
 # Private network addresses hard-coded into core
 \b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b
