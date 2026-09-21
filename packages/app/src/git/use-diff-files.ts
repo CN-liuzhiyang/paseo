@@ -2,11 +2,8 @@ import { useMemo } from "react";
 import type { CheckoutCommitFile, ParsedDiffFile } from "@getpaseo/protocol/messages";
 import { useRetainedPanelActive } from "@/components/retained-panel";
 import { useFetchQueries, useFetchQuery } from "@/data/query";
-import {
-  checkoutCommitFileDiffQueryKey,
-  checkoutCommitFilesQueryKey,
-  COMMIT_FILE_DIFF_STALE_TIME,
-} from "@/git/query-keys";
+import { checkoutCommitFilesQueryKey, COMMIT_FILE_DIFF_STALE_TIME } from "@/git/query-keys";
+import { commitFileDiffQueryOptions } from "./commit-file-diff-query";
 import { useHostRuntimeClient, useHostRuntimeIsConnected } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 
@@ -93,18 +90,16 @@ export function useCommitDiffFiles(ctx: CommitDiffFilesContext): CommitDiffFiles
 
   const fileDiffsEnabled = queryEnabled && commitFilesLoaded && capabilityPresent && canFetch;
   const fileDiffResults = useFetchQueries(
-    commitFiles.map((file) => ({
-      queryKey: checkoutCommitFileDiffQueryKey(serverId, cwd, sha, file.path),
-      queryFn: async (): Promise<{ file: ParsedDiffFile | null }> => {
-        if (!client) {
-          throw new Error("Host disconnected");
-        }
-        return client.getCommitFileDiff(cwd, sha, file.path);
-      },
-      enabled: fileDiffsEnabled,
-      staleTimeMs: COMMIT_FILE_DIFF_STALE_TIME,
-      dataShape: "value" as const,
-    })),
+    commitFiles.map((file) =>
+      commitFileDiffQueryOptions({
+        serverId,
+        cwd,
+        sha,
+        path: file.path,
+        client,
+        enabled: fileDiffsEnabled,
+      }),
+    ),
   );
   const commitFilesError = commitFilesQuery.error;
   const commitFilesLoading =

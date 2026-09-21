@@ -1,26 +1,30 @@
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { useSessionStore } from "@/stores/session-store";
+import { resolveWorkspaceMapKeyByIdentity } from "@/utils/workspace-identity";
 import { useMemo } from "react";
 import { navigateToWorkspace } from "@/stores/navigation-active-workspace-store";
-import { FOCUSED_PANE_PLACEMENT } from "@/stores/workspace-layout-actions";
 import { navigateToAgent } from "@/utils/navigate-to-agent";
+
+import { getIsElectron } from "@/constants/platform";
+import { createWorkspaceBrowser } from "@/desktop/browser/store";
+import { createPluginHostNavigation } from "./host-navigation-model";
 
 export function usePluginHostNavigation(
   serverId: string,
 ): NonNullable<PluginSurfaceProps["navigation"]> {
   return useMemo(
-    () => ({
-      openAgent: ({ agentId }) => navigateToAgent({ serverId, agentId }),
-      openWorkspace: ({ workspaceId }) => navigateToWorkspace({ serverId, workspaceId }),
-      // Same placement as the core Commits list: the user is working in the
-      // focused pane, so the diff lands there rather than beside the plugin panel.
-      openCommitDiff: ({ workspaceId, sha }) =>
-        navigateToWorkspace({
-          serverId,
-          workspaceId,
-          target: { kind: "commit_diff", sha },
-          placement: FOCUSED_PANE_PLACEMENT,
-        }),
-    }),
+    () =>
+      createPluginHostNavigation(serverId, {
+        browserAvailable: getIsElectron(),
+        openAgent: navigateToAgent,
+        openWorkspace: navigateToWorkspace,
+        createBrowser: createWorkspaceBrowser,
+        resolveWorkspace: ({ serverId: targetServerId, workspaceId }) =>
+          resolveWorkspaceMapKeyByIdentity({
+            workspaces: useSessionStore.getState().sessions[targetServerId]?.workspaces,
+            workspaceId,
+          }),
+      }),
     [serverId],
   );
 }
