@@ -1,0 +1,97 @@
+# Fork-only CI. Upstream's ci.yml triggers on `main`, so it never runs for a PR
+# into `next` — this covers the fork's own branches.
+#
+# It is deliberately a subset: the guard invariants plus the cheap quality
+# gates. Heavy suites still belong to upstream's matrix, which the fork
+# inherits whenever a release tag is merged in.
+
+name: fork guard
+
+on:
+  push:
+    branches: [next]
+  pull_request:
+    branches: [next]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-guard-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
+jobs:
+  delta:
+    name: delta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # `main` is the mirror. A PR only sees its own ref, so fetch the mirror
+      # to diff against.
+      - name: Fetch mirror
+        run: git fetch origin main:refs/remotes/origin/main --force
+
+      - name: Red line and delta budget
+        env:
+          FORK_GUARD_MIRROR: origin/main
+          FORK_GUARD_WORK: HEAD
+          # Internal hostnames and project names live here, not in the
+          # committed pattern file. This repository is public.
+          FORK_GUARD_EXTRA_PATTERNS: ${{ secrets.FORK_GUARD_EXTRA_PATTERNS }}
+        run: node fork-tools/check-delta.mjs
+
+  classification:
+    name: classification
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Enforced as a label rather than a PR-template checkbox: upstream owns
+      # .github/PULL_REQUEST_TEMPLATE.md, and editing it would conflict on
+      # every sync.
+      - name: Require a disposition label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const allowed = ["upstreamable", "fork-only", "infra"];
+            const labels = context.payload.pull_request.labels.map((label) => label.name);
+            const found = labels.filter((label) => allowed.includes(label));
+            if (found.length === 1) {
+              core.info(`Disposition: ${found[0]}`);
+              return;
+            }
+            core.setFailed(
+              found.length === 0
+                ? `Add exactly one disposition label: ${allowed.join(", ")}. ` +
+                  "Before choosing fork-only, check whether this could be a plugin instead — " +
+                  "see localdocs/fork-strategy.md."
+                : `Exactly one disposition label, found: ${found.join(", ")}.`,
+            );
+
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run format:check
+
+      - run: npm run build:server
+
+      - run: npm run typecheck
+
+      - run: npm run lint
