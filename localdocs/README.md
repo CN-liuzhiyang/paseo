@@ -3,6 +3,11 @@
 Fork-only documentation. `docs/` belongs to upstream — writing here keeps our
 notes out of every future merge conflict.
 
+This index is loaded into every agent session: the top of `CLAUDE.md` imports it
+with `@localdocs/README.md`, and `AGENTS.md` is a symlink to `CLAUDE.md`, so
+Codex and the other providers get it too. That block stays short on purpose.
+Put the detail in the pages below, not in `CLAUDE.md`.
+
 | Doc                                      | What's in it                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | [fork-strategy.md](fork-strategy.md)     | Why this fork exists, the red line, branches, the weekly sync       |

@@ -1,3 +1,16 @@
+<!-- Fork-only. Kept at the top of the file, and deliberately small, because
+     upstream owns everything below it and edits it often. Detail lives in
+     localdocs/, which never conflicts. -->
+
+> **This is a fork of getpaseo/paseo, not upstream.** It carries generic core
+> extension points that upstream has not merged yet. Anything specific to us —
+> hostnames, team names, project workflows — belongs in a private plugin and
+> must never enter this repository.
+>
+> Read this before non-trivial work, and before adding anything to core:
+>
+> @localdocs/README.md
+
 # CLAUDE.md
 
 Paseo is a mobile app for monitoring and controlling your local AI coding agents from anywhere. Your dev environment, in your pocket. Connects directly to your actual development environment — your code stays on your machine.
