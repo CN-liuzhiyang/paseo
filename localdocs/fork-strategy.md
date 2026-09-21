@@ -25,9 +25,21 @@ The breach is always the same shape: the plugin API cannot do the thing, and
 somebody is in a hurry. The answer to that is the next section, not a patch to
 core.
 
-`fork-tools/check-delta.mjs` enforces this on every PR. Internal names belong
-in the `FORK_GUARD_EXTRA_PATTERNS` repository secret — `forbidden-patterns.txt`
-is committed to a public repo.
+Three things watch for it, and only one of them is a gate:
+
+| Layer                             | Runs                    | Blocks?                                |
+| --------------------------------- | ----------------------- | -------------------------------------- |
+| `node fork-tools/check-delta.mjs` | When you run it         | No                                     |
+| `pre-push` hook                   | Before your push leaves | Your push only; `--no-verify` skips it |
+| `delta` required check on `next`  | On the PR, server side  | Yes — the PR cannot merge              |
+
+The required check is the gate. The hook is fast feedback so you find out in
+two seconds instead of two minutes, and a teammate who never sets it up is
+still stopped by the check.
+
+Internal names belong in the `FORK_GUARD_EXTRA_PATTERNS` repository secret.
+`forbidden-patterns.txt` is committed to a public repo and holds only patterns
+generic enough to publish.
 
 ## The fork carries extension points, not features
 
@@ -66,6 +78,32 @@ Merges, not rebases, because `next` is shared: a merge commit records its
 conflict resolution and the next merge reuses it. Rebase only `pr/*`, which
 nobody else pulls.
 
+## Local setup
+
+Once per machine, per checkout:
+
+```bash
+git config rerere.enabled true    # replay conflict resolutions across sync steps
+```
+
+`lefthook-local.yml` is gitignored, so it does not exist in a fresh clone —
+create it, then install the hook:
+
+```yaml
+# lefthook-local.yml
+pre-push:
+  jobs:
+    - name: fork-delta
+      run: node fork-tools/check-delta.mjs
+```
+
+```bash
+npx lefthook install    # without this the pre-push script is never written
+```
+
+It goes in the local file rather than `lefthook.yml` because upstream owns
+`lefthook.yml`, and a fork-only job there would conflict on every sync.
+
 ## Weekly sync
 
 ```bash
@@ -94,8 +132,6 @@ CI like any other change.
 
 Syncing to release tags rather than `upstream/main` keeps the base shippable and
 skips the lockfile and CI churn on upstream's tip.
-
-Enable `rerere` once: `git config rerere.enabled true`.
 
 ## Upstreaming
 
