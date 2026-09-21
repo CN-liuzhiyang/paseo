@@ -19,8 +19,14 @@ import { readFileSync, existsSync } from "node:fs";
 const MIRROR = process.env.FORK_GUARD_MIRROR ?? "main";
 const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 
-const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 60);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 1500);
+const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 40);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 1000);
+
+// Paths that exist only because this is a fork. They never go upstream and
+// never sit where upstream edits, so they cost nothing at merge time and are
+// not part of the budget. The red line still applies to them.
+const FORK_OWN = [/^fork-tools\//, /^localdocs\//, /^\.github\/workflows\/fork-guard\.yml$/];
+const isForkOwn = (file) => FORK_OWN.some((pattern) => pattern.test(file));
 
 const git = (...args) =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
@@ -76,16 +82,22 @@ if (hits.length > 0) {
 const stat = git("diff", "--numstat", `${MIRROR}...${WORK}`).split("\n").filter(Boolean);
 let files = 0;
 let lines = 0;
+let ownFiles = 0;
 for (const row of stat) {
-  const [added, removed] = row.split("\t");
+  const [added, removed, file] = row.split("\t");
   if (added === "-") continue; // binary
+  if (isForkOwn(file)) {
+    ownFiles += 1;
+    continue;
+  }
   files += 1;
   lines += Number(added) + Number(removed);
 }
 
 const over = files > MAX_FILES || lines > MAX_LINES;
 console.log(
-  `Budget:    ${files}/${MAX_FILES} files, ${lines}/${MAX_LINES} lines${over ? "  OVER" : ""}`,
+  `Budget:    ${files}/${MAX_FILES} files, ${lines}/${MAX_LINES} lines${over ? "  OVER" : ""}` +
+    (ownFiles > 0 ? `  (+${ownFiles} fork-own, not counted)` : ""),
 );
 
 if (over) {
