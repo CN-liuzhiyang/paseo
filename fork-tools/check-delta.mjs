@@ -77,7 +77,7 @@ if (hits.length > 0) {
   // echoing the line, would publish the thing the red line exists to keep out.
   // Report the file and let the author run this locally for the detail.
   if (IS_CI) {
-    for (const file of [...new Set(hits.map((hit) => hit.file))]) console.error(`  ${file}`);
+    for (const file of new Set(hits.map((hit) => hit.file))) console.error(`  ${file}`);
     console.error("\nRun `node fork-tools/check-delta.mjs` locally to see which lines matched.");
   } else {
     for (const hit of hits) console.error(`  ${hit.file}\n    /${hit.rule}/  ${hit.text}`);
