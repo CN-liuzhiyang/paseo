@@ -1,11 +1,18 @@
-# Fork-only release. Upstream's desktop-release.yml stays untouched and never
-# fires here: it triggers on v*/desktop-v*, and fork tags are fork-v*.
+# Fork-only release, Windows for now.
 #
-# Fork versions are an independent line of plain stable semver (1.0.0, 1.1.0).
-# They deliberately do not encode the upstream version they carry — a
-# prerelease suffix would land the build on electron-updater's beta channel,
-# which this fork does not operate. Record the upstream base in the release
-# notes instead. See localdocs/releases.md.
+# Upstream's desktop-release.yml stays untouched and never fires here: it
+# triggers on v*/desktop-v*, and fork tags are fork-v*. That also leaves it
+# enabled and dispatchable, which a disabled workflow would not be — the way
+# back to upstream's full mac/Linux/rollout pipeline stays open.
+#
+# Every step that does real work calls an upstream script. This file is glue.
+# Do not reimplement what scripts/ already does: the upload retry exists
+# because uploads.github.com returns 500 on installer-sized assets, and the
+# manifest stamp and validation are what make an update reach anyone.
+#
+# Fork versions are an independent line of plain stable semver. They do not
+# encode the upstream release they carry — put that in the release notes.
+# See localdocs/releases.md.
 name: Fork Release
 
 on:
@@ -18,10 +25,22 @@ on:
         description: "Existing fork-v tag to build (e.g. fork-v1.0.0)"
         required: true
         type: string
+      rollout_hours:
+        description: "Linear rollout duration in hours. 0 admits everyone immediately."
+        required: false
+        default: "0"
+        type: string
 
 concurrency:
   group: fork-release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  ROLLOUT_HOURS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.rollout_hours || '0' }}
+  DESKTOP_PACKAGE_PATH: "packages/desktop"
+  # Windows only, so the one channel file electron-updater polls is latest.yml.
+  RELEASE_CHANNEL: latest
 
 jobs:
   windows:
@@ -33,22 +52,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ env.RELEASE_TAG }}
 
-      - name: Resolve version from tag
+      - name: Resolve the version from the tag
         shell: bash
-        env:
-          SOURCE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          version="${SOURCE_TAG#fork-v}"
-          if [[ "$version" == "$SOURCE_TAG" ]]; then
-            echo "Expected a fork-v<semver> tag, got '$SOURCE_TAG'." >&2
+          version="${RELEASE_TAG#fork-v}"
+          if [[ "$version" == "$RELEASE_TAG" ]]; then
+            echo "Expected a fork-v<semver> tag, got '$RELEASE_TAG'." >&2
             exit 1
           fi
-          # Plain semver only. Anything with a prerelease suffix would publish
-          # onto a channel this fork does not maintain, and users would never
-          # be offered it.
+          # Plain semver only. A prerelease suffix would publish onto a channel
+          # this fork does not maintain, and nobody would ever be offered it.
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Expected plain semver like 1.0.0, got '$version'." >&2
             exit 1
@@ -65,6 +81,25 @@ jobs:
       - name: Install JS dependencies
         run: node scripts/npm-retry.mjs ci
 
+      - name: Create the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if node scripts/github-release.mjs --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists, skipping creation."
+          else
+            # The title is load-bearing. GitHub's get-release-by-tag endpoint
+            # hides drafts, so github-release.mjs falls back to finding a draft
+            # named "Paseo <tag>".
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Paseo $RELEASE_TAG" \
+              --notes "" \
+              --draft
+          fi
+
       - name: Stamp the desktop package version
         shell: bash
         run: |
@@ -77,11 +112,9 @@ jobs:
             fs.writeFileSync(p, `${JSON.stringify(pkg, null, 2)}\n`);
           '
 
-      - name: Build and publish the Windows desktop app
+      - name: Build the Windows desktop app
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EP_GH_IGNORE_TIME: true
           # Inlined into the app bundle: where it looks for its own updates and
           # changelog. Without this the fork build would offer upstream's.
           EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
@@ -89,18 +122,62 @@ jobs:
           PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
         run: |
           set -euo pipefail
-          # Every fork-specific value is a CLI override, so electron-builder.yml
-          # stays byte-identical to upstream and never conflicts on a sync.
-          args=(-- --publish always --win --x64)
+          # Upstream's own build entry point. Everything fork-specific is a CLI
+          # override, so electron-builder.yml stays byte-identical to upstream
+          # and never conflicts on a sync.
+          args=(-- --publish never --win --x64)
           args+=("-c.publish.provider=github")
           args+=("-c.publish.owner=${GITHUB_REPOSITORY%%/*}")
           args+=("-c.publish.repo=${GITHUB_REPOSITORY#*/}")
           args+=("-c.publish.releaseType=release")
+          args+=("-c.publish.channel=$RELEASE_CHANNEL")
           # A distinct identity so this installs beside the official app
           # instead of replacing it.
           args+=("-c.appId=sh.paseo.desktop.fork")
           args+=("-c.productName=Paseo Fork")
           npm run build:desktop "${args[@]}"
+
+      - name: Upload the installers
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release_lookup="$(node scripts/github-release.mjs --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG")"
+          echo "RELEASE_LOOKUP=$release_lookup" >> "$GITHUB_ENV"
+          node scripts/upload-release-assets.mjs \
+            "$release_lookup" \
+            "$DESKTOP_PACKAGE_PATH/release" \
+            "$GITHUB_REPOSITORY"
+
+      - name: Stamp, validate and upload the updater manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          manifest="$DESKTOP_PACKAGE_PATH/release/${RELEASE_CHANNEL}.yml"
+          timestamp="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
+          node scripts/stamp-rollout.mjs \
+            --release-date "$timestamp" \
+            --rollout-hours "$ROLLOUT_HOURS" \
+            "$manifest"
+          node scripts/validate-desktop-manifests.mjs \
+            --release-date "$timestamp" \
+            --rollout-hours "$ROLLOUT_HOURS" \
+            "$manifest"
+          gh release upload "$RELEASE_LOOKUP" "$manifest" --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release edit "$RELEASE_LOOKUP" \
+            --tag "$RELEASE_TAG" \
+            --draft=false \
+            --repo "$GITHUB_REPOSITORY"
 
       - name: Upload smoke diagnostics
         if: failure()

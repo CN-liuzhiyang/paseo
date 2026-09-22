@@ -25,16 +25,25 @@ internal, so it goes in a private plugin or internal runbook, never here.
 Fork releases are tagged `fork-v<semver>` and use an independent version line
 of plain stable semver: `fork-v1.0.0`, `fork-v1.1.0`, `fork-v1.1.1`.
 
-The tag prefix is not cosmetic. `v*` would break three things at once: it
-collides with the upstream tags `main` mirrors, `sync-upstream.mjs` scans `v*`
-to find upstream releases, and upstream's `desktop-release.yml` triggers on
-`v*` and would publish a build pointing at upstream's update feed.
+The prefix exists for one reason. Five upstream workflows trigger on `v*`
+(desktop-release, android-apk-release, deploy-app, docker, release-notes-sync),
+and `next` carries all of their files, so any `v`-shaped tag pushed here fires
+every one of them. `fork-v*` matches none. The alternative — a `v1.0.1-fork.1`
+version plus disabling those five in the Actions UI — works too, but a disabled
+workflow cannot be dispatched, which would close the door on ever running
+upstream's mac/Linux pipeline by hand.
 
-The version deliberately does not encode the upstream release it carries.
-electron-updater routes anything with a prerelease suffix to its beta channel,
-which this fork does not operate — a version like `0.9.0-beta.2.f.1` would be
-built and then never offered to anyone. Put the upstream base in the release
-notes instead.
+Two things the prefix is not for, both of which look like reasons and are not.
+Upstream tags cannot collide with a `-fork.N` version, and `sync-upstream.mjs`
+already ignores fork tags because `candidates()` filters on
+`--merged upstream/main`.
+
+The version stays plain semver, with no fork suffix. A suffixed version does
+work — electron-updater's stable path resolves through GitHub's
+`/releases/latest`, which filters on the release's prerelease _flag_, not on the
+version string — but only for as long as every release is published with
+`releaseType=release`. Plain semver removes that standing dependency. Name the
+upstream release this build carries in the release notes instead.
 
 Nothing is committed to cut a release. The workflow stamps the version into
 `packages/desktop/package.json` at build time from the tag, so no `package.json`
@@ -46,15 +55,32 @@ in this repo ever diverges from upstream's version fields.
 git tag fork-v1.0.0 && git push origin fork-v1.0.0
 ```
 
-Then write the release notes, naming the upstream release this build carries.
+The workflow creates a draft release, builds, uploads the installers, stamps and
+validates `latest.yml`, then flips the draft to published.
 
-electron-builder publishes the installer and `latest.yml` itself. That manifest
-is what existing installs poll, so a release without it ships to nobody.
+`latest.yml` is what existing installs poll. A release without it ships to
+nobody, which is why the workflow validates the file instead of trusting the
+build to have produced it.
+
+## The workflow is glue, on purpose
+
+`fork-release.yml` calls `scripts/github-release.mjs`,
+`scripts/upload-release-assets.mjs`, `scripts/stamp-rollout.mjs` and
+`scripts/validate-desktop-manifests.mjs`, and builds with
+`npm run build:desktop`. All of those are upstream's.
+
+Keep it that way. The first version of this workflow used
+`electron-builder --publish always` instead, which looked simpler and silently
+dropped three things: the per-file upload retry that exists because
+uploads.github.com returns 500 on installer-sized assets, the manifest
+validation, and the rollout stamp. Fork-specific values belong in `-c.`
+overrides and env vars; logic belongs in upstream's scripts.
 
 ## What a fork tag does not do
 
-No npm publish, no macOS or Linux build, no rollout staging. macOS is not a
-matter of adding a job: electron-updater verifies the code signature, so
+No npm publish, no macOS or Linux build. Rollout staging is wired up but
+defaults to 0 hours, which admits everyone at once; raise `rollout_hours` on a
+dispatch run to stage one. macOS is not a matter of adding a job: electron-updater verifies the code signature, so
 auto-update there needs an Apple Developer certificate. Windows auto-updates
 unsigned; the only cost is a SmartScreen prompt on first install.
 
