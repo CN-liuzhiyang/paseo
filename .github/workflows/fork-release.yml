@@ -123,6 +123,11 @@ jobs:
           # Inlined into the app bundle: where it looks for its own updates and
           # changelog. Without this the fork build would offer upstream's.
           EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
+          # CHANGELOG.md is upstream's and would conflict on every sync, so
+          # fork releases are written in FORK-CHANGELOG.md instead. A branch
+          # ref, not the tag being built: the sheet refetches on every open to
+          # show releases that shipped after this build.
+          EXPO_PUBLIC_PASEO_CHANGELOG_URL: https://raw.githubusercontent.com/${{ github.repository }}/next/FORK-CHANGELOG.md
           PASEO_DESKTOP_SMOKE: "1"
           PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
         run: |

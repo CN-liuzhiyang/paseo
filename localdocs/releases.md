@@ -5,13 +5,13 @@ This fork ships its own Windows desktop builds. Everything else — the relay,
 
 ## What is ours, what is borrowed
 
-| Surface               | Source                     | How                                                  |
-| --------------------- | -------------------------- | ---------------------------------------------------- |
-| Desktop app + updates | This repo's releases       | `.github/workflows/fork-release.yml`                 |
-| In-app changelog      | This repo's `CHANGELOG.md` | `EXPO_PUBLIC_PASEO_SOURCE_REPO`                      |
-| Relay                 | Official `relay.paseo.sh`  | unchanged; it is E2E encrypted and sees no plaintext |
-| Pairing links         | Official `app.paseo.sh`    | unchanged                                            |
-| npm `@getpaseo/*`     | Official                   | we publish nothing                                   |
+| Surface               | Source                          | How                                                  |
+| --------------------- | ------------------------------- | ---------------------------------------------------- |
+| Desktop app + updates | This repo's releases            | `.github/workflows/fork-release.yml`                 |
+| In-app changelog      | This repo's `FORK-CHANGELOG.md` | `EXPO_PUBLIC_PASEO_CHANGELOG_URL`                    |
+| Relay                 | Official `relay.paseo.sh`       | unchanged; it is E2E encrypted and sees no plaintext |
+| Pairing links         | Official `app.paseo.sh`         | unchanged                                            |
+| npm `@getpaseo/*`     | Official                        | we publish nothing                                   |
 
 We publish no npm packages. The desktop app bundles its own daemon, so a
 teammate who installs the app needs nothing from a registry. If headless
@@ -42,8 +42,9 @@ The version stays plain semver, with no fork suffix. A suffixed version does
 work — electron-updater's stable path resolves through GitHub's
 `/releases/latest`, which filters on the release's prerelease _flag_, not on the
 version string — but only for as long as every release is published with
-`releaseType=release`. Plain semver removes that standing dependency. Name the
-upstream release this build carries in the release notes instead.
+`releaseType=release`. Plain semver removes that standing dependency. The
+upstream release a build carries is named in its `FORK-CHANGELOG.md` entry
+instead.
 
 Nothing is committed to cut a release. The workflow writes the tag's version
 into the root `package.json` and runs `scripts/sync-workspace-versions.mjs`,
@@ -55,6 +56,8 @@ and the updater comparison come from there, but the About screen reads
 
 ## Cutting one
 
+Write the entry in `FORK-CHANGELOG.md` and push it to `next` first, then tag:
+
 ```bash
 git tag fork-v1.0.0 && git push origin fork-v1.0.0
 ```
@@ -65,6 +68,27 @@ validates `latest.yml`, then flips the draft to published.
 `latest.yml` is what existing installs poll. A release without it ships to
 nobody, which is why the workflow validates the file instead of trusting the
 build to have produced it.
+
+## The changelog
+
+What's New reads `FORK-CHANGELOG.md` from `next`, not `CHANGELOG.md`. Same
+parser, separate file: `CHANGELOG.md` is rewritten by upstream on every release
+and is the one file guaranteed to conflict, so fork entries there would cost a
+merge resolution every sync and gain nothing.
+
+The upstream notes are still one link away — `CHANGELOG.md` is right there in
+the repo, unmodified. A fork entry names the upstream release it carries and
+lets the reader follow it.
+
+Two things the sheet cares about. The version heading must match the tag
+(`fork-v1.0.2` → `## 1.0.2`) or the release is not marked as the one running.
+And the URL points at the `next` branch, not at the tag being built: the sheet
+refetches on every open so that a build from months ago still shows what
+shipped since.
+
+`packages/app/src/constants/source-repo.ts` holds the default. It is a
+fork-authored file that upstream does not have, so the knob costs no conflict
+surface.
 
 ## The workflow is glue, on purpose
 
