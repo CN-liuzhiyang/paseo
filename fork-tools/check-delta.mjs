@@ -9,9 +9,10 @@
 //
 //   node fork-tools/check-delta.mjs
 //
-// This fork is public. Internal hostnames and project names must NOT be listed
-// in forbidden-patterns.txt, which is committed. Put those in the
-// FORK_GUARD_EXTRA_PATTERNS secret (newline-separated regexes) instead.
+// This fork is public, and so are its CI logs. forbidden-patterns.txt stays
+// generic on purpose: internal hostnames and project names do not belong
+// there, and must not be fed in through FORK_GUARD_EXTRA_PATTERNS either. That
+// file's header explains why, and what catches them instead.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
