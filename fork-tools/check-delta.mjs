@@ -26,7 +26,7 @@ const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 1000);
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are
 // not part of the budget. The red line still applies to them.
-const FORK_OWN = [/^fork-tools\//, /^localdocs\//, /^\.github\/workflows\/fork-guard\.yml$/];
+const FORK_OWN = [/^fork-tools\//, /^localdocs\//, /^\.github\/workflows\/fork-[^/]+\.yml$/];
 const isForkOwn = (file) => FORK_OWN.some((pattern) => pattern.test(file));
 
 const git = (...args) =>

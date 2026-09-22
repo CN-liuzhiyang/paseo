@@ -2,6 +2,7 @@ import { isElectronRuntime } from "@/desktop/host";
 import { invokeDesktopCommand } from "@/desktop/electron/invoke";
 import { isWeb } from "@/constants/platform";
 import { i18n } from "@/i18n/i18next";
+import { RELEASE_DOWNLOAD_BASE_URL } from "@/constants/source-repo";
 
 export interface DesktopAppUpdateCheckResult {
   hasUpdate: boolean;
@@ -37,8 +38,6 @@ export interface LocalDaemonVersionResult {
   version: string | null;
   error: string | null;
 }
-
-const RELEASE_DOWNLOAD_BASE_URL = "https://github.com/getpaseo/paseo/releases/download";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

@@ -8,10 +8,16 @@ with `@localdocs/README.md`, and `AGENTS.md` is a symlink to `CLAUDE.md`, so
 Codex and the other providers get it too. That block stays short on purpose.
 Put the detail in the pages below, not in `CLAUDE.md`.
 
+On Windows those symlinks are checked out as ordinary text files, so
+`npm run format` rewrites them and stages a bogus one-line diff. Check
+`git status` after formatting and `git checkout -- AGENTS.md
+packages/server/AGENTS.md` if they show up.
+
 | Doc                                      | What's in it                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | [fork-strategy.md](fork-strategy.md)     | Why this fork exists, the red line, branches, the weekly sync       |
 | [private-plugins.md](private-plugins.md) | Where our own behaviour lives, and how it depends on fork-only APIs |
+| [releases.md](releases.md)               | What this fork publishes, tags, versions, and what stays upstream's |
 
 Tooling lives in `fork-tools/`:
 

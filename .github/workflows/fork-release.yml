@@ -1,0 +1,112 @@
+# Fork-only release. Upstream's desktop-release.yml stays untouched and never
+# fires here: it triggers on v*/desktop-v*, and fork tags are fork-v*.
+#
+# Fork versions are an independent line of plain stable semver (1.0.0, 1.1.0).
+# They deliberately do not encode the upstream version they carry — a
+# prerelease suffix would land the build on electron-updater's beta channel,
+# which this fork does not operate. Record the upstream base in the release
+# notes instead. See localdocs/releases.md.
+name: Fork Release
+
+on:
+  push:
+    tags:
+      - "fork-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing fork-v tag to build (e.g. fork-v1.0.0)"
+        required: true
+        type: string
+
+concurrency:
+  group: fork-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Resolve version from tag
+        shell: bash
+        env:
+          SOURCE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${SOURCE_TAG#fork-v}"
+          if [[ "$version" == "$SOURCE_TAG" ]]; then
+            echo "Expected a fork-v<semver> tag, got '$SOURCE_TAG'." >&2
+            exit 1
+          fi
+          # Plain semver only. Anything with a prerelease suffix would publish
+          # onto a channel this fork does not maintain, and users would never
+          # be offered it.
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected plain semver like 1.0.0, got '$version'." >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Stamp the desktop package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("node:fs");
+            const p = "packages/desktop/package.json";
+            const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+            pkg.version = process.env.RELEASE_VERSION;
+            fs.writeFileSync(p, `${JSON.stringify(pkg, null, 2)}\n`);
+          '
+
+      - name: Build and publish the Windows desktop app
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_GH_IGNORE_TIME: true
+          # Inlined into the app bundle: where it looks for its own updates and
+          # changelog. Without this the fork build would offer upstream's.
+          EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
+          PASEO_DESKTOP_SMOKE: "1"
+          PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
+        run: |
+          set -euo pipefail
+          # Every fork-specific value is a CLI override, so electron-builder.yml
+          # stays byte-identical to upstream and never conflicts on a sync.
+          args=(-- --publish always --win --x64)
+          args+=("-c.publish.provider=github")
+          args+=("-c.publish.owner=${GITHUB_REPOSITORY%%/*}")
+          args+=("-c.publish.repo=${GITHUB_REPOSITORY#*/}")
+          args+=("-c.publish.releaseType=release")
+          # A distinct identity so this installs beside the official app
+          # instead of replacing it.
+          args+=("-c.appId=sh.paseo.desktop.fork")
+          args+=("-c.productName=Paseo Fork")
+          npm run build:desktop "${args[@]}"
+
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fork-desktop-smoke-windows-x64
+          path: ${{ runner.temp }}/desktop-smoke
+          if-no-files-found: ignore
+          retention-days: 7
