@@ -86,9 +86,23 @@ unsigned; the only cost is a SmartScreen prompt on first install.
 
 ## Identity
 
-The build overrides `appId` and `productName` so it installs beside the
-official app instead of replacing it. Both register the `paseo://` scheme —
-whichever installed last wins deep links.
+The build overrides `appId`, `productName` and `executableName`, all to
+`PaseoFork`, so it installs beside the official app instead of replacing it.
+No spaces in the name, so nothing downstream has to quote it.
+
+`executableName` is the one that is easy to miss, and the only one that decides
+whether the two collide. NSIS takes its default install directory from
+`appInfo.productFilename`, which is `executableName` when that is set and falls
+back to the product name only when it is not — and upstream sets it to `Paseo`.
+fork-v1.0.0 shipped with `productName` overridden but not `executableName`: the
+window said PaseoFork and the installer still defaulted to
+`AppData/Local/Programs/Paseo`, straight on top of the official app.
+
+Overriding it renames the packaged binary, which the packaged smoke test looks
+up by name, so `PASEO_EXECUTABLE_NAME` has to be exported for the build too.
+
+Both apps register the `paseo://` scheme — whichever installed last wins deep
+links.
 
 ## The web app is still upstream's
 

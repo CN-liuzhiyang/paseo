@@ -118,6 +118,9 @@ jobs:
           # Inlined into the app bundle: where it looks for its own updates and
           # changelog. Without this the fork build would offer upstream's.
           EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
+          # The packaged smoke test locates the binary by name, and
+          # executableName below renames it.
+          PASEO_EXECUTABLE_NAME: PaseoFork
           PASEO_DESKTOP_SMOKE: "1"
           PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
         run: |
@@ -132,9 +135,13 @@ jobs:
           args+=("-c.publish.releaseType=release")
           args+=("-c.publish.channel=$RELEASE_CHANNEL")
           # A distinct identity so this installs beside the official app
-          # instead of replacing it.
+          # instead of replacing it. executableName is load-bearing and easy to
+          # miss: NSIS derives the default install directory from it, not from
+          # productName, so leaving it at upstream's "Paseo" points the
+          # installer straight at the official app's directory.
           args+=("-c.appId=sh.paseo.desktop.fork")
-          args+=("-c.productName=Paseo Fork")
+          args+=("-c.productName=PaseoFork")
+          args+=("-c.executableName=PaseoFork")
           npm run build:desktop "${args[@]}"
 
       - name: Upload the installers

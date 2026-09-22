@@ -7,7 +7,9 @@ const { setTimeout: delay } = require("node:timers/promises");
 const { chromium } = require("playwright");
 const { extractFile } = require("@electron/asar");
 
-const EXECUTABLE_NAME = "Paseo";
+// Overridable so a rebranded build (a fork, a white-label) can still find
+// its own binary. electron-builder names it after `executableName`.
+const EXECUTABLE_NAME = process.env.PASEO_EXECUTABLE_NAME || "Paseo";
 const SMOKE_TIMEOUT_MS = 60_000;
 const EXIT_TIMEOUT_MS = 10_000;
 const TERMINAL_CAPTURE_ATTEMPTS = 20;
