@@ -45,9 +45,13 @@ version string — but only for as long as every release is published with
 `releaseType=release`. Plain semver removes that standing dependency. Name the
 upstream release this build carries in the release notes instead.
 
-Nothing is committed to cut a release. The workflow stamps the version into
-`packages/desktop/package.json` at build time from the tag, so no `package.json`
-in this repo ever diverges from upstream's version fields.
+Nothing is committed to cut a release. The workflow writes the tag's version
+into the root `package.json` and runs `scripts/sync-workspace-versions.mjs`,
+so no `package.json` in this repo ever diverges from upstream's version
+fields. Stamping only `packages/desktop` is not enough: the installer name
+and the updater comparison come from there, but the About screen reads
+`packages/app/package.json` at bundle time and the daemon reports
+`packages/server`. fork-v1.0.0 shipped as 1.0.0 and said 0.9.0-beta.2.
 
 ## Cutting one
 
@@ -86,20 +90,31 @@ unsigned; the only cost is a SmartScreen prompt on first install.
 
 ## Identity
 
-The build overrides `appId`, `productName` and `executableName`, all to
-`PaseoFork`, so it installs beside the official app instead of replacing it.
-No spaces in the name, so nothing downstream has to quote it.
+The build overrides `appId` and `productName` to `PaseoFork`. That gives it
+its own user data directory, Start Menu entry and updater registry key, so it
+is a separate application from the official app in every way but one: the
+default install directory.
 
-`executableName` is the one that is easy to miss, and the only one that decides
-whether the two collide. NSIS takes its default install directory from
-`appInfo.productFilename`, which is `executableName` when that is set and falls
-back to the product name only when it is not — and upstream sets it to `Paseo`.
-fork-v1.0.0 shipped with `productName` overridden but not `executableName`: the
-window said PaseoFork and the installer still defaulted to
-`AppData/Local/Programs/Paseo`, straight on top of the official app.
+The installer still offers `AppData/Local/Programs/Paseo`, on top of the
+official app. **Change the folder during install.**
+`allowToChangeInstallationDirectory` is already true, so the directory page
+is there.
 
-Overriding it renames the packaged binary, which the packaged smoke test looks
-up by name, so `PASEO_EXECUTABLE_NAME` has to be exported for the build too.
+That default is not configurable. NSIS takes it from `appInfo.productFilename`,
+which is `executableName` when set, and upstream pins `executableName: Paseo`.
+No nsis option moves it.
+
+Overriding `executableName` does move it, and is a dead end. The same name
+also names the packaged binary, and `packages/desktop/bin/paseo.cmd` hardcodes
+`Paseo.exe`. That shim is how the desktop app cold-starts its own daemon, so
+renaming breaks the app, not just a test — fork-v1.0.1 failed exactly there.
+The POSIX shim hardcodes three more (`Paseo Helper.app`, `Paseo.bin`,
+`Paseo`), drawn from `productName` and `executableName` in different places.
+
+If the manual step ever becomes a problem, the untried option is an
+`nsis.include` script that rewrites `$INSTDIR` in `customInit`. That macro
+runs after `initMultiUser`, so a previous install's recorded path and a `/D`
+override can both be left alone.
 
 Both apps register the `paseo://` scheme — whichever installed last wins deep
 links.

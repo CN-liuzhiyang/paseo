@@ -100,17 +100,22 @@ jobs:
               --draft
           fi
 
-      - name: Stamp the desktop package version
+      - name: Stamp the version across every workspace
         shell: bash
         run: |
           set -euo pipefail
+          # The installer name and the updater comparison come from
+          # packages/desktop, but the About screen reads packages/app and
+          # the daemon reports packages/server. Stamping only one leaves
+          # the app claiming upstream's version forever. Upstream avoids
+          # this by committing a monorepo-wide bump before releasing.
           node -e '
             const fs = require("node:fs");
-            const p = "packages/desktop/package.json";
-            const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             pkg.version = process.env.RELEASE_VERSION;
-            fs.writeFileSync(p, `${JSON.stringify(pkg, null, 2)}\n`);
+            fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
           '
+          node scripts/sync-workspace-versions.mjs
 
       - name: Build the Windows desktop app
         shell: bash
@@ -118,9 +123,6 @@ jobs:
           # Inlined into the app bundle: where it looks for its own updates and
           # changelog. Without this the fork build would offer upstream's.
           EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
-          # The packaged smoke test locates the binary by name, and
-          # executableName below renames it.
-          PASEO_EXECUTABLE_NAME: PaseoFork
           PASEO_DESKTOP_SMOKE: "1"
           PASEO_DESKTOP_SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/desktop-smoke
         run: |
@@ -134,14 +136,12 @@ jobs:
           args+=("-c.publish.repo=${GITHUB_REPOSITORY#*/}")
           args+=("-c.publish.releaseType=release")
           args+=("-c.publish.channel=$RELEASE_CHANNEL")
-          # A distinct identity so this installs beside the official app
-          # instead of replacing it. executableName is load-bearing and easy to
-          # miss: NSIS derives the default install directory from it, not from
-          # productName, so leaving it at upstream's "Paseo" points the
-          # installer straight at the official app's directory.
+          # A distinct identity. Note this does NOT move the install
+          # directory: NSIS takes that from executableName, which upstream
+          # pins to "Paseo" and which also names the binary the bundled CLI
+          # shim starts the daemon through. See localdocs/releases.md.
           args+=("-c.appId=sh.paseo.desktop.fork")
           args+=("-c.productName=PaseoFork")
-          args+=("-c.executableName=PaseoFork")
           npm run build:desktop "${args[@]}"
 
       - name: Upload the installers
