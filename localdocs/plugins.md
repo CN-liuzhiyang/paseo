@@ -66,6 +66,11 @@ fork means adding its flag there too, or plugins have nothing to gate on.
 Check the flag once, at the edge. A gate threaded through every call site is
 the fallback path this rule exists to prevent.
 
+An extension point on the server context needs no flag: server code runs
+inside the daemon it would ask, so the member being present is the capability.
+`server.paseo` is the example. Check `if (!server.paseo)` once in the entry,
+log what the host is missing, and contribute nothing.
+
 ## When upstream lands the same capability
 
 Upstream will not necessarily match our API. When a sync brings back its

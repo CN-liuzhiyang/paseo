@@ -38,6 +38,12 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
     ) => ZodInput<OutputSchema> | Promise<ZodInput<OutputSchema>>,
   ): void;
   registerProvider(provider: ProviderRegistration): void;
+  /**
+   * The same connection hooks and handlers receive as `context.paseo`, for work the plugin starts
+   * on its own: an external event, a timer. Undefined on hosts that predate it. It stops working
+   * once the plugin begins to stop, so do not call it from cleanup.
+   */
+  readonly paseo?: PaseoApi;
 }
 
 export type PluginServerContribution = (server: PluginServerContext) => PluginCleanup;
