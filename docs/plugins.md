@@ -326,6 +326,11 @@ Emit from the operation owner, not a client subscription. Provider history repla
 live hooks. Observers must not be awaited inside agent mutations: a callback can send a prompt or
 answer a permission through its own daemon session. Awaiting it there deadlocks that command.
 
+That session is one `PaseoApi` per subprocess, created before the entry runs. Hooks and handlers
+receive it as `context.paseo`; the entry itself receives it as `server.paseo` for work no hook
+triggers, such as an outside event source. It is optional on the context so a plugin compiled
+against this SDK can tell a host that predates it.
+
 ## Contribute a provider
 
 Register a provider from `index.server.ts`. The provider connection is callback-based and owns all

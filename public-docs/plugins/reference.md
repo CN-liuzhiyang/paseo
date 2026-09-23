@@ -1759,6 +1759,26 @@ Inputs and outputs are validated on both sides. RPC names start with a lowercase
 
 Backend handlers receive the same `PaseoApi` as `{ paseo }`. Their connection belongs to the subprocess and closes when the plugin stops. It does not subscribe to timelines or catalog events until plugin code subscribes. Follow the [SDK event contract](../../sdk/events.md) for cleanup and timeline replacements. Backend code can use Node APIs and dependencies installed in the plugin directory.
 
+Work the plugin starts on its own, such as an event from an outside service or a timer, has no handler to receive the API from. Use `server.paseo`: the same connection, available as soon as the entry runs. It is undefined on hosts that predate it, and it stops working once the plugin begins to stop, so do not call it from cleanup.
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  const paseo = server.paseo;
+  if (!paseo) {
+    console.error("This plugin needs a Paseo host that provides server.paseo.");
+    return () => {};
+  }
+  const timer = setInterval(() => {
+    void paseo.agents.list({ page: { limit: 20 } }).then(({ entries }) => {
+      console.log(`${entries.length} agents`);
+    });
+  }, 60_000);
+  return () => clearInterval(timer);
+}
+```
+
 ## Debug backend output
 
 Backend contributions can write to stdout and stderr with normal Node logging:

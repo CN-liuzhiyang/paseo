@@ -141,6 +141,81 @@ export default function contribute(server: PluginServerContext) {
   }
 }, 60_000);
 
+test("plugin code that no hook or handler called reaches the daemon through server.paseo", async () => {
+  const pluginDirectory = await mkdtemp(path.join(tmpdir(), "paseo-server-api-plugin-"));
+  const workspaceDirectory = await mkdtemp(path.join(tmpdir(), "paseo-server-api-workspace-"));
+  roots.push(pluginDirectory, workspaceDirectory);
+  await writeFile(
+    path.join(pluginDirectory, "paseo-plugin.json"),
+    JSON.stringify({
+      id: "server-api",
+      requirements: { paseo: `>=${resolveDaemonVersion(import.meta.url)}` },
+    }),
+  );
+  await writeFile(
+    path.join(pluginDirectory, "index.server.ts"),
+    `import { defineRpc } from "@getpaseo/plugin";
+import { type PluginServerContext } from "@getpaseo/plugin/server";
+import { z } from "zod";
+
+const started = defineRpc({
+  name: "started",
+  input: z.object({}),
+  output: z.object({ agentId: z.string(), sameConnection: z.boolean() }),
+});
+
+export default function contribute(server: PluginServerContext) {
+  const api = server.paseo!;
+  // Stands in for an external event: nothing in Paseo asked the plugin to do this.
+  const agentId = new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      api.workspaces
+        .create({ source: { kind: "directory", path: ${JSON.stringify(workspaceDirectory)} } })
+        .then((workspace) =>
+          workspace.agents.create({ config: { provider: "pi/test" }, prompt: "Started by the plugin" }),
+        )
+        .then((agent) => resolve(agent.id), reject);
+    }, 0);
+  });
+  server.handle(started, async (_input, { paseo }) => ({
+    agentId: await agentId,
+    sameConnection: paseo === api,
+  }));
+  return () => undefined;
+}`,
+  );
+
+  const daemon = await createTestPaseoDaemon({
+    agentClients: { ...createTestAgentClients(), pi: createTestAgentClient("pi") },
+  });
+  const client = new DaemonClient({
+    url: `ws://127.0.0.1:${daemon.port}/ws`,
+    appVersion: "0.4.0",
+  });
+
+  try {
+    await client.connect();
+    await client.patchDaemonConfig({ pluginsEnabled: true });
+    await expect(client.installDirectoryPlugin(pluginDirectory)).resolves.toMatchObject({
+      id: "server-api",
+      status: "running",
+    });
+
+    const result = await client.invokePluginRpc("server-api", "started", {});
+    expect(result).toEqual({
+      agentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      sameConnection: true,
+    });
+    const agents = await client.fetchAgents();
+    expect(agents.entries.map((entry) => entry.agent.id)).toContain(
+      Reflect.get(Object(result), "agentId"),
+    );
+  } finally {
+    await client.close().catch(() => undefined);
+    await daemon.close();
+  }
+}, 60_000);
+
 test("daemon config reload enables and disables configured plugins without restarting", async () => {
   const pluginDirectory = await mkdtemp(path.join(tmpdir(), "paseo-reload-plugin-"));
   const paseoHomeRoot = await mkdtemp(path.join(tmpdir(), "paseo-reload-home-"));
