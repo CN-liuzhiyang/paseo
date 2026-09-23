@@ -45,7 +45,10 @@ would publish them the first time someone tripped it.
 
 So the safety net catches shapes, and people catch the rest. The disposition
 label on every PR is what makes that a decision someone has to make out loud
-rather than one that gets skipped.
+rather than one that gets skipped. Exactly one of `upstreamable`, `fork-only`,
+`infra` or `sync`, enforced by the `classification` check. `sync` is separate
+from `infra` because a sync PR carries no fork patch, so there is no
+plugin-or-core call to make; everything else has one.
 
 ## The fork carries extension points, not features
 
@@ -129,9 +132,14 @@ node fork-tools/sync-upstream.mjs --to v0.8.0-beta.1
 # resolve, then:
 npm run build:server && npm run typecheck && npm run lint && npm run format
 node fork-tools/check-delta.mjs
+git push origin main
 git push -u origin sync/v0.8.0-beta.1
-gh pr create --base next --title "sync: upstream v0.8.0-beta.1"
+gh pr create --base next --title "sync: upstream v0.8.0-beta.1" --label sync
 ```
+
+Push `main` too. The script fast-forwards it locally, but the `delta` check on
+the PR measures against `origin/main`, so a remote mirror left behind counts
+everything the sync just absorbed as fork delta and fails on budget.
 
 Never push `next` directly. A bad sync blocks everyone, so a sync goes through
 CI like any other change.

@@ -12,6 +12,10 @@ on:
     branches: [next]
   pull_request:
     branches: [next]
+    # `labeled`/`unlabeled` are not in the default set, so without them adding
+    # the disposition label leaves classification red on a payload that
+    # predates it, and the only way out is a manual re-run.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   workflow_dispatch:
 
 concurrency:
@@ -57,7 +61,10 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const allowed = ["upstreamable", "fork-only", "infra"];
+            // `sync` is its own disposition because a sync PR carries no fork
+            // patch at all — there is no plugin-or-core decision to make, and
+            // filing it as infra would blur what that label means.
+            const allowed = ["upstreamable", "fork-only", "infra", "sync"];
             const labels = context.payload.pull_request.labels.map((label) => label.name);
             const found = labels.filter((label) => allowed.includes(label));
             if (found.length === 1) {

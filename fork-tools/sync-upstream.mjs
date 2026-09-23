@@ -113,8 +113,13 @@ Then, before opening the sync PR:
 
   npm run build:server && npm run typecheck && npm run lint && npm run format
   node fork-tools/check-delta.mjs
+  git push origin ${MIRROR}
   git push -u origin ${branch}
-  gh pr create --base ${WORK} --title "sync: upstream ${target}"
+  gh pr create --base ${WORK} --title "sync: upstream ${target}" --label sync
+
+Pushing ${MIRROR} is not optional. This script fast-forwarded it locally, but
+the delta check on the PR measures against origin/${MIRROR}: leave the remote
+behind and every commit this sync just absorbed is counted as fork delta.
 
 Never push ${WORK} directly. A bad sync blocks everyone.`);
 }
