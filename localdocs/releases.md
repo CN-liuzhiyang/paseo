@@ -25,6 +25,23 @@ internal, so it goes in a private plugin or internal runbook, never here.
 Fork releases are tagged `fork-v<semver>` and use an independent version line
 of plain stable semver: `fork-v1.0.0`, `fork-v1.1.0`, `fork-v1.1.1`.
 
+What each position means here:
+
+| Bump  | When                                                       |
+| ----- | ---------------------------------------------------------- |
+| minor | The build carries an upstream release the last one did not |
+| patch | Fork-side fix only; the upstream base is unchanged         |
+| major | A release that needs the user to do something by hand      |
+
+A release that does both is a minor. Major does not track upstream's: the two
+lines are not comparable, so upstream reaching 1.0 changes nothing here. It is
+reserved for a change no update can carry by itself — a new application
+identity, a moved install directory, an uninstall-and-reinstall.
+
+Upstream ships every week or two, so minors go quickly and the number gets
+large. Nothing depends on it staying small; do not hold releases back to keep it
+tidy.
+
 The prefix exists for one reason. Five upstream workflows trigger on `v*`
 (desktop-release, android-apk-release, deploy-app, docker, release-notes-sync),
 and `next` carries all of their files, so any `v`-shaped tag pushed here fires
