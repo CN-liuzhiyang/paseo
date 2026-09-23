@@ -1,6 +1,12 @@
-# Private plugins
+# Plugins
 
-Everything specific to us lives in a plugin, in its own private repository.
+Everything specific to us lives in a plugin, outside this fork. The code is
+public wherever it can be; the data never enters a repository. Allowlists,
+routes, credentials, hostnames and internal URLs go in per-host plugin settings
+(`defineSettings`) or local config, and every table that grants access ships
+empty. A plugin that only makes sense inside a company network -- one that
+depends on internal tools -- lives in that company's own repository instead.
+
 Plugins never enter this fork — see [fork-strategy.md](fork-strategy.md).
 
 ## Starting one
@@ -27,7 +33,7 @@ different: it is compared with the version the daemon reports, so there it is
 the fork's number.
 
 One repository per plugin, or one monorepo — either works. What matters is that
-it is separate from this fork and private.
+it is separate from this fork, and that nothing in it is data.
 
 ## Depending on a fork-only API
 
@@ -42,7 +48,8 @@ matches exactly what the upstream release it is based on matches.
 ```ts
 // COMPAT(commitFiles): fork-only until upstream lands its own shape.
 const hasCommitFiles = useDaemonStore(
-  (state) => state.sessions[serverId]?.serverInfo?.features?.commitFiles === true,
+  (state) =>
+    state.sessions[serverId]?.serverInfo?.features?.commitFiles === true
 );
 
 if (!hasCommitFiles) {

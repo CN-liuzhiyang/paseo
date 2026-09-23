@@ -10,11 +10,11 @@ That is what keeps a weekly sync mechanical instead of archaeological.
 
 ## Three layers
 
-| Layer     | Holds                                  | Where                   | Upstreamable |
-| --------- | -------------------------------------- | ----------------------- | ------------ |
-| upstream  | getpaseo/paseo                         | read-only mirror        | —            |
-| this fork | core extension points, product-generic | `next`, public          | all of it    |
-| plugins   | everything specific to us              | private repos, separate | never        |
+| Layer     | Holds                                  | Where                                     | Upstreamable |
+| --------- | -------------------------------------- | ----------------------------------------- | ------------ |
+| upstream  | getpaseo/paseo                         | read-only mirror                          | —            |
+| this fork | core extension points, product-generic | `next`, public                            | all of it    |
+| plugins   | everything specific to us              | separate repos; code public, data in none | never        |
 
 ## The red line
 

@@ -13,11 +13,11 @@ On Windows those symlinks are checked out as ordinary text files, so
 `git status` after formatting and `git checkout -- AGENTS.md
 packages/server/AGENTS.md` if they show up.
 
-| Doc                                      | What's in it                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------- |
-| [fork-strategy.md](fork-strategy.md)     | Why this fork exists, the red line, branches, the weekly sync       |
-| [private-plugins.md](private-plugins.md) | Where our own behaviour lives, and how it depends on fork-only APIs |
-| [releases.md](releases.md)               | What this fork publishes, tags, versions, and what stays upstream's |
+| Doc                                  | What's in it                                                        |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| [fork-strategy.md](fork-strategy.md) | Why this fork exists, the red line, branches, the weekly sync       |
+| [plugins.md](plugins.md)             | Where our own behaviour lives, and how it depends on fork-only APIs |
+| [releases.md](releases.md)           | What this fork publishes, tags, versions, and what stays upstream's |
 
 Tooling lives in `fork-tools/`:
 
