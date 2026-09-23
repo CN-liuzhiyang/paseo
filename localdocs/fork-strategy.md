@@ -130,12 +130,26 @@ to `v0.9.0-beta.1` (6).
 ```bash
 node fork-tools/sync-upstream.mjs --to v0.8.0-beta.1
 # resolve, then:
+npm ci                     # only if package-lock.json moved, which it usually does
 npm run build:server && npm run typecheck && npm run lint && npm run format
+git checkout -- AGENTS.md packages/server/AGENTS.md   # Windows only; see README.md
 node fork-tools/check-delta.mjs
 git push origin main
 git push -u origin sync/v0.8.0-beta.1
 gh pr create --base next --title "sync: upstream v0.8.0-beta.1" --label sync
 ```
+
+Skipping `npm ci` after the lockfile moves produces type errors that read like
+real ones and are not.
+
+When the plan lists several releases and every one of them costs zero
+conflicts, merge them onto a single branch and open one PR. Stepping exists to
+make conflicts cheaper, and there is nothing to make cheaper. Name the branch
+after the newest tag, since that is what lands.
+
+Once the PR is merged, `git pull` on `next` and cut a release from it —
+[releases.md](releases.md#cutting-one). Absorbing upstream and shipping it are
+one errand: nobody is running `next`.
 
 Push `main` too. The script fast-forwards it locally, but the `delta` check on
 the PR measures against `origin/main`, so a remote mirror left behind counts
