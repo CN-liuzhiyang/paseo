@@ -27,8 +27,7 @@ different: it is compared with the version the daemon reports, so there it is
 the fork's number.
 
 One repository per plugin, or one monorepo — either works. What matters is that
-it is separate from this fork and private. Ours is
-`github.com/CN-liuzhiyang/paseo-plugins`, one subdirectory per plugin.
+it is separate from this fork and private.
 
 ## Depending on a fork-only API
 
