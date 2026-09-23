@@ -38,13 +38,22 @@ Upstream tags cannot collide with a `-fork.N` version, and `sync-upstream.mjs`
 already ignores fork tags because `candidates()` filters on
 `--merged upstream/main`.
 
-The version stays plain semver, with no fork suffix. A suffixed version does
-work — electron-updater's stable path resolves through GitHub's
-`/releases/latest`, which filters on the release's prerelease _flag_, not on the
-version string — but only for as long as every release is published with
-`releaseType=release`. Plain semver removes that standing dependency. The
-upstream release a build carries is named in its `FORK-CHANGELOG.md` entry
-instead.
+The version stays plain semver, with no fork suffix, and it cannot be anything
+else on this stack. A version like `0.9.1-fork.3` breaks auto-update outright,
+which is worth spelling out because it looks like the obvious way to encode the
+upstream base:
+
+- `AppUpdater.js:218` sets `allowPrerelease = hasPrereleaseComponents(currentVersion)`. Installing a version with a prerelease segment turns the flag on by itself; it is not something you opt into.
+- With it on, `GitHubProvider.getLatestVersion` stops using `/releases/latest` and walks the releases ATOM feed, matching each entry's channel against the running version's. `currentChannel` becomes `"fork"`.
+- Each candidate's channel comes from `semver.prerelease(hrefTag)`, and `hrefTag` is the raw tag off `/tag/…` — `fork-v0.9.1-fork.4`, which is not valid semver, so it parses to `null`.
+- Neither branch can match: `shouldFetchVersion` wants `alpha` or `beta`, and `isNextPreRelease` wants the two channels equal. The loop ends with `tag == null` and it throws `ERR_UPDATER_NO_PUBLISHED_VERSIONS`.
+
+The two requirements are mutually exclusive. A prerelease version forces channel
+matching, channel matching needs a tag semver can parse, and our tag must carry
+the `fork-v` prefix to keep upstream's five `v*` workflows from firing.
+
+So the upstream base lives beside the version, not inside it: every
+`FORK-CHANGELOG.md` entry names it.
 
 Nothing is committed to cut a release. The workflow writes the tag's version
 into the root `package.json` and runs `scripts/sync-workspace-versions.mjs`,
