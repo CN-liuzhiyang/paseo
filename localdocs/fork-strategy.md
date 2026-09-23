@@ -141,8 +141,12 @@ Push `main` too. The script fast-forwards it locally, but the `delta` check on
 the PR measures against `origin/main`, so a remote mirror left behind counts
 everything the sync just absorbed as fork delta and fails on budget.
 
-Never push `next` directly. A bad sync blocks everyone, so a sync goes through
-CI like any other change.
+Never push `next` directly for a sync. A bad sync blocks everyone, and the
+conflict resolutions are exactly what another pair of eyes is for.
+
+That rule is about syncs and code, not about every commit. Release notes and
+other markdown that ships nothing can go straight to `next` — a PR there buys a
+`quality` run over a file no build reads, and the wait is the whole cost.
 
 Syncing to release tags rather than `upstream/main` keeps the base shippable and
 skips the lockfile and CI churn on upstream's tip.

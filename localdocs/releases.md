@@ -56,11 +56,16 @@ and the updater comparison come from there, but the About screen reads
 
 ## Cutting one
 
-Write the entry in `FORK-CHANGELOG.md` and push it to `next` first, then tag:
+Write the entry in `FORK-CHANGELOG.md`, push it straight to `next`, then tag:
 
 ```bash
+git push origin next
 git tag fork-v1.0.0 && git push origin fork-v1.0.0
 ```
+
+The tag has to land on a commit that already carries the entry, so the push
+comes first. Markdown goes to `next` without a PR — see
+[fork-strategy.md](fork-strategy.md#weekly-sync).
 
 The workflow creates a draft release, builds, uploads the installers, stamps and
 validates `latest.yml`, then flips the draft to published.
