@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.1.1 - 2026-09-23
+
+Carries upstream v0.9.1, the same base as 1.1.0.
+
+### Added
+
+- Plugin server entries receive the Paseo API as `server.paseo`. Before this, a plugin could create or message agents only from inside a hook or an RPC handler. Now it can also do so when its own work starts, such as a message arriving from a chat service or a timer firing. Hooks and handlers still receive the API as `context.paseo`.
+
 ## 1.1.0 - 2026-09-23
 
 Carries upstream v0.9.1, up from v0.9.0-beta.2. That is two upstream releases
