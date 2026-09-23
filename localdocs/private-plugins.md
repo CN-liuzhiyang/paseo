@@ -13,11 +13,22 @@ npm run cli -- plugin init /absolute/path/to/our-plugin
 
 It writes `paseo-plugin.json`, the `index.client.tsx` / `index.server.ts`
 entries, and the `client/` `server/` `shared/` split the compiler enforces. The
-[public reference](../public-docs/plugins/v0.8/reference.md) is the API doc;
+[public reference](../public-docs/plugins/reference.md) is the API doc;
 this page only covers what is different because we run a fork.
 
+**On a fork build the scaffold does not install as written.** It pins
+`@getpaseo/plugin` to the CLI's own version, which here is the fork's release
+number, and npm has no such package:
+`npm error notarget No matching version found for @getpaseo/plugin@1.0.3`.
+Pin it to the version in this checkout's `packages/plugin/package.json` — the
+upstream release the fork is based on, which npm does have. Link the fork's
+SDK instead only when the plugin needs a fork-only API. `requirements.paseo` is
+different: it is compared with the version the daemon reports, so there it is
+the fork's number.
+
 One repository per plugin, or one monorepo — either works. What matters is that
-it is separate from this fork and private.
+it is separate from this fork and private. Ours is
+`github.com/CN-liuzhiyang/paseo-plugins`, one subdirectory per plugin.
 
 ## Depending on a fork-only API
 
