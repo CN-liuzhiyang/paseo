@@ -9,6 +9,15 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.1.2 - 2026-09-24
+
+Carries upstream v0.9.1, the same base as 1.1.1.
+
+### Added
+
+- Schedules can deliver each run's result through a channel that a plugin registers, such as a chat service. Pick the destination by name under "Deliver results" in the schedule form, or pass `--deliver channel:to` to `paseo schedule create` and `update`. Failed runs are delivered too, with the error, so the recipient knows it did not work. Every run records whether delivery succeeded, and the schedule row shows where results go and how the last delivery went.
+- Plugins register outbound channels with `server.registerChannel`, and can list their destinations so people choose them by name. `paseo schedule channels` shows what the connected daemon offers.
+
 ## 1.1.1 - 2026-09-23
 
 Carries upstream v0.9.1, the same base as 1.1.0.
