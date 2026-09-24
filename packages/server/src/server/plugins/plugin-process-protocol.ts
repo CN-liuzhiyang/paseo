@@ -5,7 +5,13 @@ import type {
   ProviderInput,
 } from "@getpaseo/plugin/server/provider";
 import { ProviderEventSchema, ProviderInputSchema } from "@getpaseo/plugin/server/provider";
+import type { ChannelDelivery } from "@getpaseo/plugin/server";
 import { z } from "zod";
+
+export interface PluginChannelMetadata {
+  id: string;
+  label?: string;
+}
 
 export interface PluginProviderMetadata {
   hasCatalogCacheKey?: boolean;
@@ -32,6 +38,8 @@ export type PluginProcessRequest =
   | { type: "hook"; requestId: string; kind: "event" | "before"; name: string; input: unknown }
   | { type: "hook.cancel"; requestId: string }
   | { type: "invoke"; requestId: string; method: string; input: unknown }
+  | { type: "channel.deliver"; requestId: string; channelId: string; delivery: ChannelDelivery }
+  | { type: "channel.destinations"; requestId: string; channelId: string }
   | {
       type: "provider.connect";
       providerId: string;
@@ -52,11 +60,13 @@ export type PluginProcessRequest =
 export type PluginProcessMessage =
   | { type: "settings.changed"; settingsId: string }
   | { type: "hooks.changed"; hooks: { events: string[]; before: string[] } }
+  | { type: "channels.changed"; channels: PluginChannelMetadata[] }
   | {
       type: "ready";
       methods: string[];
       providers: PluginProviderMetadata[];
       hooks?: { events: string[]; before: string[] };
+      channels?: PluginChannelMetadata[];
     }
   | { type: "result"; requestId: string; output: unknown }
   | { type: "error"; requestId: string; error: string }
@@ -95,6 +105,31 @@ const providerConnectRequestSchema = z
   .object({
     versions: z.array(z.number().int().positive()),
     capabilities: z.array(z.string()),
+  })
+  .strict();
+const channelMetadataSchema = z
+  .object({ id: z.string().min(1), label: z.string().optional() })
+  .strict();
+export const ChannelDestinationsSchema = z.array(
+  z.object({ to: z.string().min(1), label: z.string() }),
+);
+const channelDeliverySchema = z
+  .object({
+    to: z.string(),
+    idempotencyKey: z.string().min(1),
+    source: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("schedule"),
+          scheduleId: z.string().min(1),
+          scheduleName: z.string().nullable(),
+          runId: z.string().min(1),
+        })
+        .strict(),
+    ]),
+    status: z.enum(["succeeded", "failed"]),
+    text: z.string(),
+    agentId: z.string().nullable(),
   })
   .strict();
 const frameFields = {
@@ -151,6 +186,21 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
       .strict(),
     z
       .object({
+        type: z.literal("channel.deliver"),
+        requestId: z.string().min(1),
+        channelId: z.string().min(1),
+        delivery: channelDeliverySchema,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("channel.destinations"),
+        requestId: z.string().min(1),
+        channelId: z.string().min(1),
+      })
+      .strict(),
+    z
+      .object({
         type: z.literal("provider.connect"),
         providerId: z.string().min(1),
         connectionId: z.string().min(1),
@@ -178,11 +228,15 @@ export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.dis
     z.object({ type: z.literal("settings.changed"), settingsId: z.string() }).strict(),
     z.object({ type: z.literal("hooks.changed"), hooks: hooksSchema }).strict(),
     z
+      .object({ type: z.literal("channels.changed"), channels: z.array(channelMetadataSchema) })
+      .strict(),
+    z
       .object({
         type: z.literal("ready"),
         methods: z.array(z.string()),
         providers: z.array(providerMetadataSchema),
         hooks: hooksSchema.optional(),
+        channels: z.array(channelMetadataSchema).optional(),
       })
       .strict(),
     z

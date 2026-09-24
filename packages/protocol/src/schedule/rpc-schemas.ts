@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   ScheduleCadenceSchema,
+  ScheduleChannelSchema,
+  ScheduleDeliverySchema,
   ScheduleRunSchema,
   ScheduleSummarySchema,
   StoredScheduleSchema,
@@ -34,6 +36,7 @@ export const ScheduleCreateRequestSchema = z.object({
   maxRuns: z.number().int().positive().optional(),
   expiresAt: z.string().optional(),
   runOnCreate: z.boolean().optional(),
+  delivery: ScheduleDeliverySchema.optional(),
 });
 
 export const ScheduleListRequestSchema = z.object({
@@ -51,6 +54,11 @@ export const ScheduleLogsRequestSchema = z.object({
   type: z.literal("schedule/logs"),
   requestId: z.string(),
   scheduleId: z.string(),
+});
+
+export const ScheduleChannelsRequestSchema = z.object({
+  type: z.literal("schedule/channels"),
+  requestId: z.string(),
 });
 
 export const SchedulePauseRequestSchema = z.object({
@@ -97,6 +105,7 @@ export const ScheduleUpdateRequestSchema = z.object({
   newAgentConfig: ScheduleUpdateNewAgentConfigSchema.optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
+  delivery: ScheduleDeliverySchema.nullable().optional(),
 });
 
 export const ScheduleCreateResponseSchema = z.object({
@@ -131,6 +140,15 @@ export const ScheduleLogsResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     runs: z.array(ScheduleRunSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const ScheduleChannelsResponseSchema = z.object({
+  type: z.literal("schedule/channels/response"),
+  payload: z.object({
+    requestId: z.string(),
+    channels: z.array(ScheduleChannelSchema),
     error: z.string().nullable(),
   }),
 });

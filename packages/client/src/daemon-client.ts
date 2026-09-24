@@ -577,6 +577,10 @@ type ScheduleUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "schedule/update/response" }
 >["payload"];
+type ScheduleChannelsPayload = Extract<
+  SessionOutboundMessage,
+  { type: "schedule/channels/response" }
+>["payload"];
 export type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
 export type AgentForkContextPayload = AgentForkContextResponseMessage["payload"];
 
@@ -795,6 +799,8 @@ export interface CreateScheduleOptions {
   maxRuns?: number;
   expiresAt?: string;
   runOnCreate?: boolean;
+  /** Send each run's result to this plugin channel. */
+  delivery?: { channel: string; to: string };
   requestId?: string;
 }
 export interface InspectScheduleOptions {
@@ -822,6 +828,8 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  /** `null` clears the delivery target. */
+  delivery?: { channel: string; to: string } | null;
   requestId?: string;
 }
 export interface RenameBranchInput {
@@ -5862,8 +5870,18 @@ export class DaemonClient {
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
         ...(typeof options.runOnCreate === "boolean" ? { runOnCreate: options.runOnCreate } : {}),
+        ...(options.delivery ? { delivery: options.delivery } : {}),
       },
       responseType: "schedule/create/response",
+    });
+  }
+
+  /** Outbound channels plugins offer as schedule delivery targets, with their destinations. */
+  async scheduleChannels(requestId?: string): Promise<ScheduleChannelsPayload> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "schedule/channels" },
+      responseType: "schedule/channels/response",
     });
   }
 
@@ -5955,6 +5973,7 @@ export class DaemonClient {
         ...(options.newAgentConfig !== undefined ? { newAgentConfig: options.newAgentConfig } : {}),
         ...(options.maxRuns !== undefined ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt !== undefined ? { expiresAt: options.expiresAt } : {}),
+        ...(options.delivery !== undefined ? { delivery: options.delivery } : {}),
       },
       responseType: "schedule/update/response",
     });

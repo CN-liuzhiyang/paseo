@@ -33,6 +33,31 @@ export type ScheduleTarget =
       };
     };
 
+export interface ScheduleDelivery {
+  channel: string;
+  to: string;
+}
+
+export interface ScheduleRunDelivery {
+  status: "delivered" | "failed";
+  at: string;
+  error?: string;
+}
+
+export interface ScheduleChannelRecord {
+  id: string;
+  label: string | null;
+  pluginId: string;
+  destinations: Array<{ to: string; label: string }> | null;
+  error?: string;
+}
+
+export interface ScheduleChannelsPayload {
+  requestId: string;
+  channels: ScheduleChannelRecord[];
+  error: string | null;
+}
+
 export interface ScheduleRunRecord {
   id: string;
   scheduledFor: string;
@@ -42,6 +67,7 @@ export interface ScheduleRunRecord {
   agentId: string | null;
   output: string | null;
   error: string | null;
+  delivery?: ScheduleRunDelivery;
 }
 
 export interface ScheduleRecord {
@@ -58,6 +84,7 @@ export interface ScheduleRecord {
   pausedAt: string | null;
   expiresAt: string | null;
   maxRuns: number | null;
+  delivery?: ScheduleDelivery;
   runs: ScheduleRunRecord[];
 }
 
@@ -74,6 +101,7 @@ export interface ScheduleListItem {
   pausedAt: string | null;
   expiresAt: string | null;
   maxRuns: number | null;
+  delivery?: ScheduleDelivery;
 }
 
 export interface CreateScheduleInput {
@@ -84,6 +112,7 @@ export interface CreateScheduleInput {
   maxRuns?: number;
   expiresAt?: string;
   runOnCreate?: boolean;
+  delivery?: ScheduleDelivery;
 }
 
 export interface ScheduleCreatePayload {
@@ -149,6 +178,7 @@ export interface UpdateScheduleInput {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  delivery?: ScheduleDelivery | null;
 }
 
 export interface ScheduleUpdatePayload {
@@ -167,5 +197,6 @@ export interface ScheduleDaemonClient {
   scheduleDelete(input: { id: string }): Promise<ScheduleDeletePayload>;
   scheduleRunOnce(input: { id: string }): Promise<ScheduleRunOncePayload>;
   scheduleUpdate(input: UpdateScheduleInput): Promise<ScheduleUpdatePayload>;
+  scheduleChannels(): Promise<ScheduleChannelsPayload>;
   close(): Promise<void>;
 }

@@ -331,6 +331,28 @@ receive it as `context.paseo`; the entry itself receives it as `server.paseo` fo
 triggers, such as an outside event source. It is optional on the context so a plugin compiled
 against this SDK can tell a host that predates it.
 
+## Outbound channels
+
+`server.registerChannel()` contributes a channel that schedules name in `delivery: { channel, to }`.
+The subprocess lists its channels as `{ id, label? }` in `ready` and resends the full list as
+`channels.changed` when one is registered later. The daemon sends `channel.deliver` and waits for
+the usual `result` or `error`, with a 60-second timeout. `channel.destinations` asks for the
+channel's `{ to, label }[]` (empty when it has no `destinations()`), with a 10-second timeout.
+`PluginService.listChannels()` returns every channel of the running plugins once, owned by the
+same plugin that receives its deliveries; a channel whose destinations fail or time out comes back
+with `destinations: null` and `error` instead of failing the list. Clients read it through the
+`schedule/channels` session request, gated by the `scheduleDelivery` server feature. `PluginService.deliverToChannel()` rejects when plugins are
+disabled or no running plugin provides the channel; a stopping plugin rejects its pending
+deliveries. Duplicate IDs across plugins resolve to the alphabetically first plugin ID, and the
+others log an error.
+
+`ScheduleService` receives the delivery function through its options. It delivers after the run
+outcome is stored, for succeeded and failed runs alike, and records the result on the run as
+`delivery: { status, at, error? }`, and on the schedule as `lastDelivery` (plus `runId`) so lists
+can show it without runs. `lastDelivery` is dropped when the target changes. A delivery failure
+never changes the run status. There are no
+retries, and runs that a daemon restart marks failed are not delivered.
+
 ## Contribute a provider
 
 Register a provider from `index.server.ts`. The provider connection is callback-based and owns all

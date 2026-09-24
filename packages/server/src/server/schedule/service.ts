@@ -20,14 +20,18 @@ import { ScheduleStore } from "./store.js";
 import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
 import type {
   CreateScheduleInput,
+  ScheduleChannel,
+  ScheduleDelivery,
   ScheduleExecutionResult,
   ScheduleRun,
+  ScheduleRunDelivery,
   ScheduleTarget,
   StoredSchedule,
   UpdateScheduleInput,
   UpdateScheduleNewAgentConfig,
 } from "@getpaseo/protocol/schedule/types";
 import type { FirstAgentContext } from "@getpaseo/protocol/messages";
+import type { ChannelDelivery } from "@getpaseo/plugin/server";
 
 const SCHEDULE_TICK_INTERVAL_MS = 1000;
 
@@ -62,6 +66,54 @@ function normalizePrompt(prompt: string): string {
     throw new Error("Schedule prompt is required");
   }
   return trimmed;
+}
+
+function normalizeDelivery(delivery: ScheduleDelivery): ScheduleDelivery {
+  const channel = delivery.channel.trim();
+  const to = delivery.to.trim();
+  if (!channel) {
+    throw new Error("delivery channel cannot be empty");
+  }
+  if (!to) {
+    throw new Error("delivery address cannot be empty");
+  }
+  return { channel, to };
+}
+
+function withDelivery(
+  schedule: StoredSchedule,
+  delivery: ScheduleDelivery | null | undefined,
+): StoredSchedule {
+  const { delivery: previous, lastDelivery, ...rest } = schedule;
+  const next = delivery ? normalizeDelivery(delivery) : null;
+  // The last outcome describes the old target; keep it only while the target is unchanged.
+  const unchanged = next !== null && previous?.channel === next.channel && previous.to === next.to;
+  return {
+    ...rest,
+    ...(next ? { delivery: next } : {}),
+    ...(unchanged && lastDelivery ? { lastDelivery } : {}),
+  };
+}
+
+function buildChannelDelivery(
+  schedule: StoredSchedule,
+  target: ScheduleDelivery,
+  run: ScheduleRun,
+): ChannelDelivery {
+  const succeeded = run.status === "succeeded";
+  return {
+    to: target.to,
+    idempotencyKey: run.id,
+    source: {
+      kind: "schedule",
+      scheduleId: schedule.id,
+      scheduleName: schedule.name,
+      runId: run.id,
+    },
+    status: succeeded ? "succeeded" : "failed",
+    text: succeeded ? (run.output ?? "") : (run.error ?? "Scheduled run failed"),
+    agentId: run.agentId,
+  };
 }
 
 function applyNewAgentConfig(
@@ -238,6 +290,10 @@ export interface ScheduleServiceOptions {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   archiveWorkspace: (workspaceId: string) => Promise<void>;
+  /** Hands a finished run to the plugin channel named by the schedule; rejects if it failed. */
+  deliverToChannel: (channelId: string, delivery: ChannelDelivery) => Promise<void>;
+  /** The outbound channels plugins currently offer, for clients choosing a delivery target. */
+  listChannels: () => Promise<ScheduleChannel[]>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
@@ -255,6 +311,11 @@ export class ScheduleService {
     input: ScheduleWorkspaceCreateInput,
   ) => Promise<CreatePaseoWorktreeWorkflowResult>;
   private readonly archiveWorkspace: (workspaceId: string) => Promise<void>;
+  private readonly deliverToChannel: (
+    channelId: string,
+    delivery: ChannelDelivery,
+  ) => Promise<void>;
+  private readonly listChannelsFromPlugins: () => Promise<ScheduleChannel[]>;
   private readonly now: () => Date;
   private readonly runner: (
     schedule: StoredSchedule,
@@ -272,6 +333,8 @@ export class ScheduleService {
     this.createDirectoryWorkspace = options.createDirectoryWorkspace;
     this.createPaseoWorktreeWorkspace = options.createPaseoWorktreeWorkspace;
     this.archiveWorkspace = options.archiveWorkspace;
+    this.deliverToChannel = options.deliverToChannel;
+    this.listChannelsFromPlugins = options.listChannels;
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
@@ -323,6 +386,7 @@ export class ScheduleService {
     const runOnCreate = input.runOnCreate ?? input.cadence.type === "every";
     const nextRunAt = runOnCreate ? now : computeNextRunAt(input.cadence, now);
     return {
+      ...(input.delivery ? { delivery: normalizeDelivery(input.delivery) } : {}),
       name: fields.name,
       prompt: fields.prompt,
       cadence: input.cadence,
@@ -361,7 +425,7 @@ export class ScheduleService {
         const runOnCreate = input.runOnCreate ?? cadence.type === "every";
         const nextRunAt = runOnCreate ? now : computeNextRunAt(cadence, now);
         return {
-          ...current,
+          ...withDelivery(current, input.delivery),
           name,
           prompt,
           cadence,
@@ -387,6 +451,10 @@ export class ScheduleService {
       throw new Error(`Schedule not found: ${id}`);
     }
     return schedule;
+  }
+
+  async listChannels(): Promise<ScheduleChannel[]> {
+    return this.listChannelsFromPlugins();
   }
 
   async logs(id: string): Promise<ScheduleRun[]> {
@@ -472,6 +540,10 @@ export class ScheduleService {
 
       if (input.expiresAt !== undefined) {
         updated = { ...updated, expiresAt: input.expiresAt };
+      }
+
+      if (input.delivery !== undefined) {
+        updated = withDelivery(updated, input.delivery);
       }
 
       return { ...updated, updatedAt: now.toISOString() };
@@ -708,30 +780,70 @@ export class ScheduleService {
     const scheduleWithRun = await this.appendRunningRun(schedule.id, runningRun);
 
     try {
-      const result = await this.runner(scheduleWithRun, runId);
-      await this.finishRun({
-        scheduleId: schedule.id,
-        runId,
-        status: "succeeded",
-        agentId: result.agentId,
-        output: result.output,
-        error: null,
-        targetGone: false,
-        manual,
-      });
-    } catch (error) {
-      await this.finishRun({
-        scheduleId: schedule.id,
-        runId,
-        status: "failed",
-        agentId: null,
-        output: null,
-        error: error instanceof Error ? error.message : String(error),
-        targetGone: error instanceof ScheduleTargetGoneError,
-        manual,
-      });
+      let finished: StoredSchedule;
+      try {
+        const result = await this.runner(scheduleWithRun, runId);
+        finished = await this.finishRun({
+          scheduleId: schedule.id,
+          runId,
+          status: "succeeded",
+          agentId: result.agentId,
+          output: result.output,
+          error: null,
+          targetGone: false,
+          manual,
+        });
+      } catch (error) {
+        finished = await this.finishRun({
+          scheduleId: schedule.id,
+          runId,
+          status: "failed",
+          agentId: null,
+          output: null,
+          error: error instanceof Error ? error.message : String(error),
+          targetGone: error instanceof ScheduleTargetGoneError,
+          manual,
+        });
+      }
+      await this.deliverRun(finished, runId);
     } finally {
       this.runningScheduleIds.delete(schedule.id);
+    }
+  }
+
+  // Runs after the outcome is stored, so a delivery failure can only mark the run's delivery
+  // record, never its status. No retries: the channel gets one attempt per run.
+  private async deliverRun(schedule: StoredSchedule, runId: string): Promise<void> {
+    const target = schedule.delivery;
+    const run = schedule.runs.find((candidate) => candidate.id === runId);
+    if (!target || !run) {
+      return;
+    }
+    let record: ScheduleRunDelivery;
+    try {
+      await this.deliverToChannel(target.channel, buildChannelDelivery(schedule, target, run));
+      record = { status: "delivered", at: this.now().toISOString() };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        { err: error, scheduleId: schedule.id, runId, channel: target.channel },
+        "Failed to deliver scheduled run result",
+      );
+      record = { status: "failed", at: this.now().toISOString(), error: message };
+    }
+    try {
+      await this.store.update(schedule.id, (current) => ({
+        ...current,
+        ...(current.delivery ? { lastDelivery: { ...record, runId } } : {}),
+        runs: current.runs.map((candidate) =>
+          candidate.id === runId ? { ...candidate, delivery: record } : candidate,
+        ),
+      }));
+    } catch (error) {
+      this.logger.warn(
+        { err: error, scheduleId: schedule.id, runId },
+        "Failed to record scheduled run delivery",
+      );
     }
   }
 
@@ -756,7 +868,7 @@ export class ScheduleService {
     error: string | null;
     targetGone: boolean;
     manual: boolean;
-  }): Promise<void> {
+  }): Promise<StoredSchedule> {
     const updatedSchedule = await this.store.update(params.scheduleId, (schedule) => {
       const now = this.now();
       const completedRuns = schedule.runs.map((run) =>
@@ -808,7 +920,7 @@ export class ScheduleService {
 
       return updated;
     });
-    requireSchedule(updatedSchedule, params.scheduleId);
+    return requireSchedule(updatedSchedule, params.scheduleId);
   }
 
   private async recordRunWorkspace(params: {

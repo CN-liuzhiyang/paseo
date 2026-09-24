@@ -13,7 +13,11 @@ import { Text, View } from "react-native";
 import { Brain, Folder, GitBranch } from "lucide-react-native";
 import { StyleSheet } from "react-native-unistyles";
 import type { AgentProvider } from "@getpaseo/protocol/agent-types";
-import type { ScheduleCadence, ScheduleSummary } from "@getpaseo/protocol/schedule/types";
+import type {
+  ScheduleCadence,
+  ScheduleDelivery,
+  ScheduleSummary,
+} from "@getpaseo/protocol/schedule/types";
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import { ComboboxItem } from "@/components/ui/combobox";
@@ -26,6 +30,7 @@ import { Field, FormTextInput } from "@/components/ui/form-field";
 import { Switch } from "@/components/ui/switch";
 import { getProviderIcon } from "@/components/provider-icons";
 import { CadenceEditor } from "@/components/schedules/cadence-editor";
+import { ScheduleDeliveryField } from "@/components/schedules/schedule-delivery-field";
 import {
   SelectField,
   SelectFieldTrigger,
@@ -40,6 +45,7 @@ import {
   type FormPreferences,
 } from "@/hooks/use-form-preferences";
 import { useScheduleMutations } from "@/hooks/use-schedule-mutations";
+import { useScheduleDeliverySupported } from "@/hooks/use-schedule-channels";
 import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { useProjects } from "@/hooks/use-projects";
 import { useHosts } from "@/runtime/host-runtime";
@@ -69,6 +75,22 @@ export interface ScheduleFormSheetProps {
 function parseMaxRuns(raw: string): number | null {
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/** Omitted for hosts that predate delivery. Edit always sends the choice, so None clears it. */
+function editDeliveryForSubmit(
+  supported: boolean,
+  delivery: ScheduleDelivery | null,
+): { delivery?: ScheduleDelivery | null } {
+  return supported ? { delivery } : {};
+}
+
+/** Omitted for hosts that predate delivery, and when nothing is chosen. */
+function createDeliveryForSubmit(
+  supported: boolean,
+  delivery: ScheduleDelivery | null,
+): { delivery?: ScheduleDelivery } {
+  return supported && delivery ? { delivery } : {};
 }
 
 function requireCronCadence(
@@ -271,6 +293,7 @@ function OpenScheduleFormSheet({
   const { createSchedule, updateSchedule, isCreating, isUpdating } = useScheduleMutations({
     serverId: mutationServerId,
   });
+  const deliverySupported = useScheduleDeliverySupported(mutationServerId || null);
 
   const isSubmitting = isCreating || isUpdating;
   const cadenceError =
@@ -352,6 +375,7 @@ function OpenScheduleFormSheet({
           ...(state.submitIsolation !== undefined ? { isolation: state.submitIsolation } : {}),
         },
         maxRuns,
+        ...editDeliveryForSubmit(deliverySupported, state.delivery),
       });
       return true;
     }
@@ -376,9 +400,18 @@ function OpenScheduleFormSheet({
         },
       },
       ...(maxRuns != null ? { maxRuns } : {}),
+      ...createDeliveryForSubmit(deliverySupported, state.delivery),
     });
     return true;
-  }, [createSchedule, mode, persistPreferences, schedule, state, updateSchedule]);
+  }, [
+    createSchedule,
+    deliverySupported,
+    mode,
+    persistPreferences,
+    schedule,
+    state,
+    updateSchedule,
+  ]);
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) {
@@ -450,6 +483,7 @@ function OpenScheduleFormSheet({
         controlSize={controlSize}
         cadenceError={cadenceError}
         mutationServerId={mutationServerId}
+        deliverySupported={deliverySupported}
       />
     </AdaptiveModalSheet>
   );
@@ -463,6 +497,7 @@ interface ScheduleFormFieldsProps {
   controlSize: FieldControlSize;
   cadenceError: string | null;
   mutationServerId: string;
+  deliverySupported: boolean;
 }
 
 function ScheduleFormFields({
@@ -473,6 +508,7 @@ function ScheduleFormFields({
   controlSize,
   cadenceError,
   mutationServerId,
+  deliverySupported,
 }: ScheduleFormFieldsProps): ReactElement {
   if (state.targetKind === "agent") {
     return (
@@ -546,6 +582,15 @@ function ScheduleFormFields({
           keyboardType="number-pad"
         />
       </Field>
+
+      {deliverySupported && mutationServerId ? (
+        <ScheduleDeliveryField
+          serverId={mutationServerId}
+          value={state.delivery}
+          onChange={model.setDelivery}
+          size={controlSize}
+        />
+      ) : null}
 
       {state.submitError ? <Text style={styles.submitError}>{state.submitError}</Text> : null}
     </>

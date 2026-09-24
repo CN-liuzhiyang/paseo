@@ -10,6 +10,7 @@ import { runResumeCommand } from "./resume.js";
 import { runDeleteCommand } from "./delete.js";
 import { runRunOnceCommand } from "./run-once.js";
 import { runUpdateCommand } from "./update.js";
+import { runChannelsCommand } from "./channels.js";
 
 export function createScheduleCommand(): Command {
   const schedule = new Command("schedule").description("Manage recurring schedules");
@@ -36,12 +37,22 @@ export function createScheduleCommand(): Command {
       .option("--cwd <path>", "Working directory (default: current; required with --host)")
       .option("--run-now", "Fire one immediate run on creation")
       .option("--max-runs <n>", "Maximum number of runs")
-      .option("--expires-in <duration>", "Time to live for the schedule"),
+      .option("--expires-in <duration>", "Time to live for the schedule")
+      .option(
+        "--deliver <channel:to>",
+        "Send each run's result to a plugin channel (for example: chat:general)",
+      ),
   ).action(withOutput(runCreateCommand));
 
   addJsonAndDaemonHostOptions(schedule.command("ls").description("List schedules")).action(
     withOutput(runLsCommand),
   );
+
+  addJsonAndDaemonHostOptions(
+    schedule
+      .command("channels")
+      .description("List the delivery channels plugins offer, with their destinations"),
+  ).action(withOutput(runChannelsCommand));
 
   addJsonAndDaemonHostOptions(
     schedule.command("inspect").description("Inspect a schedule").argument("<id>", "Schedule ID"),
@@ -96,7 +107,9 @@ export function createScheduleCommand(): Command {
       .option("--max-runs <n>", "Set or change maximum number of runs")
       .option("--no-max-runs", "Clear the max-runs limit")
       .option("--expires-in <duration>", "Set or change time to live for the schedule")
-      .option("--no-expires-in", "Clear the expiration"),
+      .option("--no-expires-in", "Clear the expiration")
+      .option("--deliver <channel:to>", "Send each run's result to a plugin channel")
+      .option("--no-deliver", "Stop delivering run results"),
   ).action(withOutput(runUpdateCommand));
 
   return schedule;

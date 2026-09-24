@@ -1779,6 +1779,60 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
+## Outbound channels
+
+A schedule can name a delivery target, `{ channel, to }`. When one of its runs finishes, Paseo hands the result to the plugin that registered that channel. Register one with `server.registerChannel()` from `@getpaseo/plugin/server`. It is undefined on hosts that predate it.
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  if (!server.registerChannel) {
+    console.error("This plugin needs a Paseo host that provides server.registerChannel.");
+    return () => {};
+  }
+  server.registerChannel({
+    id: "chat",
+    label: "Team chat",
+    async deliver(delivery) {
+      const heading = delivery.status === "succeeded" ? "Report" : "Run failed";
+      const response = await fetch(`https://chat.example.com/api/rooms/${delivery.to}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": delivery.idempotencyKey },
+        body: JSON.stringify({ text: `${heading}\n\n${delivery.text}` }),
+      });
+      if (!response.ok) throw new Error(`Chat API returned ${response.status}`);
+    },
+    async destinations() {
+      const response = await fetch("https://chat.example.com/api/rooms");
+      if (!response.ok) throw new Error(`Chat API returned ${response.status}`);
+      const rooms: Array<{ id: string; name: string }> = await response.json();
+      return rooms.map((room) => ({ to: room.id, label: room.name }));
+    },
+  });
+  return () => {};
+}
+```
+
+A schedule created with `paseo schedule create --deliver chat:general ...` then reaches this channel with `to: "general"`.
+
+`deliver()` receives a `ChannelDelivery` and the same `{ paseo }` context as RPC handlers:
+
+| Field            | Meaning                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `to`             | The address from the delivery target. Only the channel interprets it.                |
+| `idempotencyKey` | The run ID. Pass it to the vendor API so a repeated delivery does not post twice.    |
+| `source`         | What produced the delivery: `{ kind: "schedule", scheduleId, scheduleName, runId }`. |
+| `status`         | `"succeeded"` or `"failed"`. Failed runs are delivered too.                          |
+| `text`           | The run's final answer on success, the error message on failure.                     |
+| `agentId`        | The agent that ran, or `null` when the run failed before one existed.                |
+
+Switch on `source.kind` and ignore kinds you do not handle; more sources may be added.
+
+`destinations()` is optional. It returns the places the channel can post to as `ChannelDestination[]`, `{ to, label }`, and receives the same `{ paseo }` context. Paseo asks for it each time a client lists channels: the app's "Deliver results" field and `paseo schedule channels` show destinations by `label` and store the matching `to`, so people never type an address. Return what exists now; a channel without `destinations()` offers none, and schedules can still name it with an explicit `to`. Paseo waits up to 10 seconds. If it throws or times out, that channel is listed as unavailable with the error while the other channels still appear.
+
+Resolve once the message is accepted. Throwing or rejecting marks the run's delivery `failed` with that message; the run's own status does not change. Paseo makes one attempt per run and waits up to 60 seconds. Channel IDs follow the same rules as RPC names and must be unique within a plugin. A channel can be registered after the entry returns, for example once settings load. If two running plugins register the same ID, the plugin with the alphabetically first plugin ID receives the deliveries and the others log an error.
+
 ## Debug backend output
 
 Backend contributions can write to stdout and stderr with normal Node logging:

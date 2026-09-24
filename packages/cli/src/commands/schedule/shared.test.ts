@@ -2,8 +2,11 @@ import { describe, expect, test, vi } from "vitest";
 
 import { selectDaemonTarget } from "../../utils/daemon-target.js";
 
+import { createScheduleCommand } from "./index.js";
+import { toScheduleChannelRows } from "./schema.js";
 import {
   compileEveryPresetToCron,
+  parseDeliverFlag,
   parseScheduleCreateInput,
   parseScheduleUpdateInput,
 } from "./shared.js";
@@ -299,6 +302,108 @@ describe("parseScheduleUpdateInput", () => {
     expect(() =>
       parseScheduleUpdateInput({ id: "abc", expiresIn: "1h", clearExpires: true }),
     ).toThrow(expect.objectContaining({ code: "CONFLICTING_EXPIRES" }));
+  });
+});
+
+describe("--deliver", () => {
+  test("splits channel and address on the first colon", () => {
+    expect(parseDeliverFlag("chat:general")).toEqual({ channel: "chat", to: "general" });
+    expect(parseDeliverFlag(" chat : room:42 ")).toEqual({ channel: "chat", to: "room:42" });
+  });
+
+  test.each(["chat", ":general", "chat:", " : ", ""])("rejects %j", (value) => {
+    expect(() => parseDeliverFlag(value)).toThrow(
+      expect.objectContaining({ code: "INVALID_DELIVERY" }),
+    );
+  });
+
+  test("create sends the delivery target", () => {
+    expect(parseScheduleCreateInput({ ...baseCron, deliver: "chat:general" }).delivery).toEqual({
+      channel: "chat",
+      to: "general",
+    });
+    expect(parseScheduleCreateInput(baseCron)).not.toHaveProperty("delivery");
+  });
+
+  test("update sets the target, and false (from --no-deliver) clears it", () => {
+    expect(parseScheduleUpdateInput({ id: "abc", deliver: "chat:general" })).toEqual({
+      id: "abc",
+      delivery: { channel: "chat", to: "general" },
+    });
+    expect(parseScheduleUpdateInput({ id: "abc", deliver: false })).toEqual({
+      id: "abc",
+      delivery: null,
+    });
+  });
+
+  test("commander maps --deliver and --no-deliver onto the deliver option", async () => {
+    const parseUpdate = async (args: string[]) => {
+      const schedule = createScheduleCommand();
+      const update = schedule.commands.find((command) => command.name() === "update");
+      let captured: unknown;
+      update?.action((_id: string, options: unknown) => {
+        captured = options;
+      });
+      await schedule.parseAsync(["update", "abc", ...args], { from: "user" });
+      return captured;
+    };
+    expect(await parseUpdate(["--deliver", "chat:general"])).toMatchObject({
+      deliver: "chat:general",
+    });
+    expect(await parseUpdate(["--no-deliver"])).toMatchObject({ deliver: false });
+  });
+});
+
+describe("schedule channels rows", () => {
+  test("one row per destination, and one explaining a channel without any", () => {
+    expect(
+      toScheduleChannelRows({
+        id: "chat",
+        label: "Chat",
+        pluginId: "notify",
+        destinations: [
+          { to: "room-1", label: "Team room" },
+          { to: "room-2", label: "Releases" },
+        ],
+      }),
+    ).toEqual([
+      {
+        key: "chat:room-1",
+        channel: "chat",
+        label: "Chat",
+        destination: "Team room",
+        to: "room-1",
+      },
+      {
+        key: "chat:room-2",
+        channel: "chat",
+        label: "Chat",
+        destination: "Releases",
+        to: "room-2",
+      },
+    ]);
+    expect(
+      toScheduleChannelRows({ id: "mail", label: null, pluginId: "notify", destinations: [] }),
+    ).toEqual([
+      { key: "mail", channel: "mail", label: null, destination: "(none listed)", to: null },
+    ]);
+    expect(
+      toScheduleChannelRows({
+        id: "pager",
+        label: null,
+        pluginId: "notify",
+        destinations: null,
+        error: "token expired",
+      }),
+    ).toEqual([
+      {
+        key: "pager",
+        channel: "pager",
+        label: null,
+        destination: "(unavailable: token expired)",
+        to: null,
+      },
+    ]);
   });
 });
 

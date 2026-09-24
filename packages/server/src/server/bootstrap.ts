@@ -1338,6 +1338,8 @@ export async function createPaseoDaemon(
     createDirectoryWorkspace: createScheduleLocalWorkspaceExternal,
     createPaseoWorktreeWorkspace: createSchedulePaseoWorktreeExternal,
     archiveWorkspace: archiveScheduleWorkspaceExternal,
+    deliverToChannel: (channelId, delivery) => pluginRuntime.deliverToChannel(channelId, delivery),
+    listChannels: () => pluginRuntime.listChannels(),
   });
   await scheduleService.start();
   agentManager.setAgentArchivedCallback(async (agentId) => {

@@ -1,10 +1,16 @@
-import { useCallback, useState, type ReactElement } from "react";
+import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { View } from "react-native";
 import { StyleSheet } from "react-native-unistyles";
-import { ScheduleRow, type ScheduleRowPending } from "@/components/schedules/schedule-row";
+import {
+  ScheduleRow,
+  type ScheduleRowDelivery,
+  type ScheduleRowPending,
+} from "@/components/schedules/schedule-row";
+import { useScheduleChannels, useScheduleDeliverySupported } from "@/hooks/use-schedule-channels";
 import { useScheduleMutations } from "@/hooks/use-schedule-mutations";
 import type { AggregatedSchedule } from "@/hooks/use-schedules";
 import type { ScheduleDerivedState } from "@/schedules/schedule-derivation";
+import { formatDeliveryTarget, summarizeLastDelivery } from "@/schedules/schedule-delivery";
 import { settingsStyles } from "@/styles/settings";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { resolveScheduleTitle, scheduleProductName } from "@/utils/schedule-format";
@@ -75,6 +81,7 @@ function SchedulesTableRow({
   const { id, serverId } = schedule;
   const mutations = useScheduleMutations({ serverId });
   const [pending, setPending] = useState<ScheduleRowPending>(NO_PENDING);
+  const delivery = useScheduleRowDelivery(schedule);
 
   const runAction = useCallback(
     async (key: keyof ScheduleRowPending, action: () => Promise<void>): Promise<void> => {
@@ -138,6 +145,7 @@ function SchedulesTableRow({
       singleHost={row.singleHost}
       isFirst={isFirst}
       pending={pending}
+      delivery={delivery}
       onEdit={handleEdit}
       onPause={handlePause}
       onResume={handleResume}
@@ -145,6 +153,30 @@ function SchedulesTableRow({
       onDelete={handleDelete}
     />
   );
+}
+
+/**
+ * Labels come from the host's channel list, which react-query shares between rows of one host.
+ * The raw `channel:to` stands in while it loads, on hosts that cannot list channels, and for a
+ * target no plugin offers.
+ */
+function useScheduleRowDelivery(schedule: AggregatedSchedule): ScheduleRowDelivery | null {
+  const target = schedule.delivery ?? null;
+  const supported = useScheduleDeliverySupported(schedule.serverId);
+  const { channels } = useScheduleChannels({
+    serverId: schedule.serverId,
+    enabled: supported && target !== null,
+  });
+  const lastDelivery = schedule.lastDelivery;
+  return useMemo(() => {
+    if (!target) {
+      return null;
+    }
+    return {
+      target: formatDeliveryTarget(target, channels),
+      lastOutcome: summarizeLastDelivery(lastDelivery),
+    };
+  }, [channels, lastDelivery, target]);
 }
 
 const styles = StyleSheet.create((theme) => ({

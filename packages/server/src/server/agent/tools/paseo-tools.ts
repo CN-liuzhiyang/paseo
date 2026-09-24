@@ -40,10 +40,12 @@ import type { TerminalManager } from "../../../terminal/terminal-manager.js";
 import type { CreatePaseoWorktreeWorkflowFn } from "../../worktree-session.js";
 import type { ScheduleService } from "../../schedule/service.js";
 import {
+  ScheduleDeliverySchema,
   ScheduleRunSchema,
   ScheduleSummarySchema,
   StoredScheduleSchema,
   type ScheduleCadence,
+  type ScheduleDelivery,
   type UpdateScheduleInput,
 } from "@getpaseo/protocol/schedule/types";
 import type { ProviderSnapshotManager } from "../provider-snapshot-manager.js";
@@ -395,7 +397,11 @@ interface ScheduleUpdateToolInput {
   cwd?: string;
   expiresIn?: string;
   clearExpires?: boolean;
+  delivery?: ScheduleDelivery | null;
 }
+
+const SCHEDULE_DELIVERY_DESCRIPTION =
+  "Send each run's result, including failures, to an outbound channel. `channel` must be a channel ID registered by a plugin running on this daemon; `to` is an address that channel understands.";
 
 function normalizeScheduleCadenceArg(value: string | undefined): string | undefined {
   if (value === undefined) {
@@ -479,6 +485,7 @@ function buildScheduleUpdateInput(input: ScheduleUpdateToolInput): UpdateSchedul
     ...(cadence !== undefined ? { cadence } : {}),
     ...(input.maxRuns !== undefined ? { maxRuns: input.maxRuns } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(input.delivery !== undefined ? { delivery: input.delivery } : {}),
     ...(Object.keys(newAgentConfig).length > 0 ? { newAgentConfig } : {}),
   };
 }
@@ -2537,10 +2544,22 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         isolation: z.enum(["local", "worktree"]).optional(),
         maxRuns: z.number().int().positive().optional(),
         expiresIn: z.string().optional(),
+        delivery: ScheduleDeliverySchema.optional().describe(SCHEDULE_DELIVERY_DESCRIPTION),
       },
       outputSchema: ScheduleSummarySchema.shape,
     },
-    async ({ prompt, cron, timezone, name, provider, cwd, isolation, maxRuns, expiresIn }) => {
+    async ({
+      prompt,
+      cron,
+      timezone,
+      name,
+      provider,
+      cwd,
+      isolation,
+      maxRuns,
+      expiresIn,
+      delivery,
+    }) => {
       if (!scheduleService) {
         throw new Error("Schedule service is not configured");
       }
@@ -2556,6 +2575,7 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
         ...(name?.trim() ? { name: name.trim() } : {}),
         ...(maxRuns === undefined ? {} : { maxRuns }),
         ...(expiresAt === undefined ? {} : { expiresAt }),
+        ...(delivery === undefined ? {} : { delivery }),
       });
 
       return {
@@ -2814,6 +2834,9 @@ export function createPaseoToolCatalog(options: PaseoToolHostDependencies): Pase
             .optional()
             .describe("New relative expiry duration (for example: 1h, 2d)."),
           clearExpires: z.boolean().optional().describe("Clear any schedule expiry."),
+          delivery: ScheduleDeliverySchema.nullable()
+            .optional()
+            .describe(`${SCHEDULE_DELIVERY_DESCRIPTION} null to clear.`),
         })
         .passthrough(),
       outputSchema: StoredScheduleSchema.shape,

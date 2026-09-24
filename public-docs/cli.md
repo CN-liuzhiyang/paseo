@@ -249,6 +249,7 @@ Run an agent on a cron schedule. The CLI also accepts simple cadence presets and
 paseo schedule create --every 30m --cwd ~/dev/my-app "Continue the refactor and leave a note."
 paseo schedule ls
 paseo schedule pause <id>
+paseo schedule channels   # delivery channels plugins offer, for --deliver <channel:to>
 ```
 
 ## Permissions
