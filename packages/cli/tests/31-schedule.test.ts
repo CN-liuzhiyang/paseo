@@ -155,6 +155,49 @@ try {
     assert.strictEqual(JSON.parse(deleted.stdout).id, createdJson.id);
     console.log("compatibility agent-target schedules remain deletable\n");
   }
+
+  {
+    console.log("Test 1e: schedule channels and --deliver round-trip");
+    const channels = await ctx.paseo(["schedule", "channels", "--json"]);
+    assert.strictEqual(channels.exitCode, 0, channels.stderr);
+    // Plugins are off in this daemon, so no channel is offered.
+    assert.deepStrictEqual(JSON.parse(channels.stdout), []);
+
+    const created = await ctx.paseo(
+      [
+        "schedule",
+        "create",
+        "Daily digest",
+        "--cron",
+        "0 9 * * *",
+        "--provider",
+        "claude",
+        "--cwd",
+        ctx.workDir,
+        "--deliver",
+        "chat:room:42",
+        "--json",
+      ],
+      { timeout: 30000 },
+    );
+    assert.strictEqual(created.exitCode, 0, created.stderr);
+    const createdJson = JSON.parse(created.stdout);
+    assert.strictEqual(createdJson.delivery, "chat:room:42");
+
+    const cleared = await ctx.paseo([
+      "schedule",
+      "update",
+      createdJson.id,
+      "--no-deliver",
+      "--json",
+    ]);
+    assert.strictEqual(cleared.exitCode, 0, cleared.stderr);
+    assert.strictEqual(JSON.parse(cleared.stdout).delivery, undefined);
+
+    const deleted = await ctx.paseo(["schedule", "delete", createdJson.id, "--json"]);
+    assert.strictEqual(deleted.exitCode, 0, deleted.stderr);
+    console.log("schedule channels and --deliver round-trip\n");
+  }
 } finally {
   await ctx.stop();
   await rm(ctx.paseoHome, { recursive: true, force: true });

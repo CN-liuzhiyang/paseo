@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   ScheduleCadenceSchema,
+  ScheduleChannelSchema,
   ScheduleDeliverySchema,
   ScheduleRunSchema,
   ScheduleSummarySchema,
@@ -53,6 +54,11 @@ export const ScheduleLogsRequestSchema = z.object({
   type: z.literal("schedule/logs"),
   requestId: z.string(),
   scheduleId: z.string(),
+});
+
+export const ScheduleChannelsRequestSchema = z.object({
+  type: z.literal("schedule/channels"),
+  requestId: z.string(),
 });
 
 export const SchedulePauseRequestSchema = z.object({
@@ -134,6 +140,15 @@ export const ScheduleLogsResponseSchema = z.object({
   payload: z.object({
     requestId: z.string(),
     runs: z.array(ScheduleRunSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const ScheduleChannelsResponseSchema = z.object({
+  type: z.literal("schedule/channels/response"),
+  payload: z.object({
+    requestId: z.string(),
+    channels: z.array(ScheduleChannelSchema),
     error: z.string().nullable(),
   }),
 });

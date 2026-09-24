@@ -39,6 +39,7 @@ interface PluginRuntimePort {
   getProviderRegistrations?(pluginId: string): readonly PluginProviderMetadata[];
   connectProvider: PluginRuntime["connectProvider"];
   deliverToChannel?: PluginRuntime["deliverToChannel"];
+  listChannels?: PluginRuntime["listChannels"];
   getProviderCatalogCacheKey?: PluginRuntime["getProviderCatalogCacheKey"];
   validatePlugin?(path: string): Promise<void>;
   startPlugin(pluginId: string, path: string, canPublish: () => boolean): Promise<void>;
@@ -427,6 +428,14 @@ export class PluginService {
       throw new Error("Plugin runtime cannot deliver to channels");
     }
     await this.runtime.deliverToChannel(channelId, delivery);
+  }
+
+  /** Channels of the running plugins with their destinations; empty when plugins are disabled. */
+  async listChannels(): ReturnType<PluginRuntime["listChannels"]> {
+    if (this.configStore.get().pluginsEnabled !== true || !this.runtime.listChannels) {
+      return [];
+    }
+    return this.runtime.listChannels();
   }
 
   async stopAllPlugins(): Promise<void> {

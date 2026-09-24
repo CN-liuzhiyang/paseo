@@ -57,6 +57,30 @@ export const ScheduleRunDeliverySchema = z.object({
 });
 export type ScheduleRunDelivery = z.infer<typeof ScheduleRunDeliverySchema>;
 
+// A place a plugin channel can post to, chosen by label instead of by raw address.
+export const ChannelDestinationSchema = z.object({
+  to: z.string(),
+  label: z.string(),
+});
+export type ChannelDestination = z.infer<typeof ChannelDestinationSchema>;
+
+// An outbound channel as clients see it. `destinations` is null when the plugin could not list
+// them, with the reason in `error`.
+export const ScheduleChannelSchema = z.object({
+  id: z.string(),
+  label: z.string().nullable(),
+  pluginId: z.string(),
+  destinations: z.array(ChannelDestinationSchema).nullable(),
+  error: z.string().optional(),
+});
+export type ScheduleChannel = z.infer<typeof ScheduleChannelSchema>;
+
+// The most recent delivery outcome, kept on the schedule so lists can show it without runs.
+export const ScheduleLastDeliverySchema = ScheduleRunDeliverySchema.extend({
+  runId: z.string(),
+});
+export type ScheduleLastDelivery = z.infer<typeof ScheduleLastDeliverySchema>;
+
 export const ScheduleRunSchema = z.object({
   id: z.string(),
   scheduledFor: z.string(),
@@ -86,6 +110,7 @@ export const StoredScheduleSchema = z.object({
   expiresAt: z.string().nullable(),
   maxRuns: z.number().int().positive().nullable(),
   delivery: ScheduleDeliverySchema.optional(),
+  lastDelivery: ScheduleLastDeliverySchema.optional(),
   runs: z.array(ScheduleRunSchema),
 });
 export type StoredSchedule = z.infer<typeof StoredScheduleSchema>;

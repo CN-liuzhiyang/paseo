@@ -10,6 +10,7 @@ import { runResumeCommand } from "./resume.js";
 import { runDeleteCommand } from "./delete.js";
 import { runRunOnceCommand } from "./run-once.js";
 import { runUpdateCommand } from "./update.js";
+import { runChannelsCommand } from "./channels.js";
 
 export function createScheduleCommand(): Command {
   const schedule = new Command("schedule").description("Manage recurring schedules");
@@ -46,6 +47,12 @@ export function createScheduleCommand(): Command {
   addJsonAndDaemonHostOptions(schedule.command("ls").description("List schedules")).action(
     withOutput(runLsCommand),
   );
+
+  addJsonAndDaemonHostOptions(
+    schedule
+      .command("channels")
+      .description("List the delivery channels plugins offer, with their destinations"),
+  ).action(withOutput(runChannelsCommand));
 
   addJsonAndDaemonHostOptions(
     schedule.command("inspect").description("Inspect a schedule").argument("<id>", "Schedule ID"),

@@ -50,11 +50,26 @@ export interface ChannelDelivery {
   agentId: string | null;
 }
 
+/** A place a channel can post to, offered to people so they pick by name instead of address. */
+export interface ChannelDestination {
+  /** The address passed back as `ChannelDelivery.to`. */
+  to: string;
+  /** What people see when they choose a destination. */
+  label: string;
+}
+
 export interface ChannelRegistration {
   id: string;
   label?: string;
   /** Resolve once the message is accepted. Throwing or rejecting marks the delivery failed. */
   deliver(delivery: ChannelDelivery, context: PluginHandlerContext): Promise<void> | void;
+  /**
+   * The destinations people can choose from, asked for whenever a client lists channels. Omit it
+   * when the channel has no fixed set; the host then offers none.
+   */
+  destinations?(
+    context: PluginHandlerContext,
+  ): Promise<ChannelDestination[]> | ChannelDestination[];
 }
 
 export interface PluginServerContext extends PluginLifecycleRegistration {

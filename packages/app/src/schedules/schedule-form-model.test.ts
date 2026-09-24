@@ -186,6 +186,37 @@ function applyPreferences(form: ReturnType<typeof open>, preferences: FormPrefer
 }
 
 describe("schedule form model", () => {
+  it("starts from the stored delivery target, changes it, and drops it with the host", () => {
+    const form = open({
+      mode: "edit",
+      schedule: {
+        ...scheduleOnHost({
+          serverId: "host-a",
+          serverName: "Host A",
+          cwd: "/repo/a",
+          model: "model-a",
+        }),
+        delivery: { channel: "chat", to: "general" },
+      },
+      defaults: { serverId: null, projectTargets: PROJECT_TARGETS, preferences: {} },
+    });
+    expect(form.getState().delivery).toEqual({ channel: "chat", to: "general" });
+
+    form.setDelivery({ channel: "chat", to: "releases" });
+    expect(form.getState().delivery).toEqual({ channel: "chat", to: "releases" });
+    form.setDelivery(null);
+    expect(form.getState().delivery).toBeNull();
+
+    const create = open({
+      mode: "create",
+      defaults: { serverId: "host-a", projectTargets: PROJECT_TARGETS, preferences: {} },
+    });
+    expect(create.getState().delivery).toBeNull();
+    create.setDelivery({ channel: "chat", to: "general" });
+    create.setHost("host-b");
+    expect(create.getState().delivery).toBeNull();
+  });
+
   it("opens edit from the schedule host snapshot and completes that host resolution", () => {
     const previous = open({
       mode: "edit",

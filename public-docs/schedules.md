@@ -19,7 +19,7 @@ Both concepts use the same cron engine, but their product surfaces stay separate
 
 Cron is the canonical cadence. The CLI accepts simple presets such as `5m` or `1h`, but compiles them to cron rather than storing a separate interval type.
 
-A schedule can also deliver each run's result, including failures, to an outbound channel that a [plugin](/docs/plugins/reference#outbound-channels) registers, for example a team chat. See [Deliver results](/docs/schedules-cli#deliver-results).
+A schedule can also deliver each run's result, including failures, to an outbound channel that a [plugin](/docs/plugins/reference#outbound-channels) registers, for example a team chat. In the app, pick the destination by name in the schedule's **Deliver results** field; the schedule list shows where results go and whether the last one arrived. From the CLI, see [Deliver results](/docs/schedules-cli#deliver-results).
 
 Both run on a cadence you set. To start an agent from an external event instead — a comment, a mention — see [Hub](/docs/hub).
 

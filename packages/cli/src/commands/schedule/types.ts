@@ -44,6 +44,20 @@ export interface ScheduleRunDelivery {
   error?: string;
 }
 
+export interface ScheduleChannelRecord {
+  id: string;
+  label: string | null;
+  pluginId: string;
+  destinations: Array<{ to: string; label: string }> | null;
+  error?: string;
+}
+
+export interface ScheduleChannelsPayload {
+  requestId: string;
+  channels: ScheduleChannelRecord[];
+  error: string | null;
+}
+
 export interface ScheduleRunRecord {
   id: string;
   scheduledFor: string;
@@ -183,5 +197,6 @@ export interface ScheduleDaemonClient {
   scheduleDelete(input: { id: string }): Promise<ScheduleDeletePayload>;
   scheduleRunOnce(input: { id: string }): Promise<ScheduleRunOncePayload>;
   scheduleUpdate(input: UpdateScheduleInput): Promise<ScheduleUpdatePayload>;
+  scheduleChannels(): Promise<ScheduleChannelsPayload>;
   close(): Promise<void>;
 }

@@ -20,16 +20,21 @@ import {
   type ProviderInput,
 } from "@getpaseo/plugin/server/provider";
 import type { PluginLogEntry } from "@getpaseo/protocol/messages";
+import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
 import { compilePlugin } from "./compiler.js";
 import { readPluginManifest } from "./manifest.js";
 import type { PluginRequirements } from "@getpaseo/protocol/messages";
 import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirements";
 import type {
+  PluginChannelMetadata,
   PluginProcessMessage,
   PluginProcessRequest,
   PluginProviderMetadata,
 } from "./plugin-process-protocol.js";
-import { PluginProcessMessageSchema } from "./plugin-process-protocol.js";
+import {
+  ChannelDestinationsSchema,
+  PluginProcessMessageSchema,
+} from "./plugin-process-protocol.js";
 import { PluginSessionSocket } from "./session-socket.js";
 
 const CLIENT_ENTRY_FILENAMES = ["index.client.ts", "index.client.tsx"] as const;
@@ -37,6 +42,8 @@ const SERVER_ENTRY_FILENAMES = ["index.server.ts", "index.server.tsx"] as const;
 const REQUEST_TIMEOUT_MS = 30_000;
 // A channel posts to an outside service, which can be slower than an in-process RPC.
 const CHANNEL_DELIVERY_TIMEOUT_MS = 60_000;
+// Listing destinations backs a form; one slow plugin must not hold the whole list.
+const CHANNEL_DESTINATIONS_TIMEOUT_MS = 10_000;
 const MAX_LOG_ENTRIES = 500;
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_LOG_LINE_BYTES = 16 * 1024;
@@ -71,7 +78,7 @@ interface LoadedPlugin {
   methods: ReadonlySet<string>;
   hooks: { events: string[]; before: string[] };
   providers: readonly PluginProviderMetadata[];
-  channels: readonly string[];
+  channels: readonly PluginChannelMetadata[];
   child: PluginChild | null;
   outputCapture: PluginOutputCapture | null;
   pending: Map<string, PendingInvocation>;
@@ -445,14 +452,51 @@ export class PluginRuntime {
     );
   }
 
+  /**
+   * Every channel of the running plugins, each owned by the plugin that receives its deliveries,
+   * with the destinations it offers. A channel whose plugin fails or times out is returned with
+   * `destinations: null` and the reason, so one broken plugin does not hide the others.
+   */
+  async listChannels(): Promise<ScheduleChannel[]> {
+    const channelIds = new Set(
+      [...this.plugins.values()].flatMap((plugin) => plugin.channels.map((channel) => channel.id)),
+    );
+    const channels = await Promise.all(
+      [...channelIds].map((channelId) => this.describeChannel(channelId)),
+    );
+    return channels
+      .filter((channel): channel is ScheduleChannel => channel !== null)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private async describeChannel(channelId: string): Promise<ScheduleChannel | null> {
+    const owner = this.findChannelOwners(channelId)[0];
+    if (!owner) return null;
+    const label = owner.channels.find((channel) => channel.id === channelId)?.label ?? null;
+    const base = { id: channelId, label, pluginId: owner.id };
+    try {
+      const output = await this.request(
+        owner,
+        { type: "channel.destinations", requestId: randomUUID(), channelId },
+        {
+          timeoutMs: CHANNEL_DESTINATIONS_TIMEOUT_MS,
+          timeoutMessage: `Channel "${channelId}" (plugin ${owner.id}) did not list its destinations within ${CHANNEL_DESTINATIONS_TIMEOUT_MS / 1000}s`,
+        },
+      );
+      return { ...base, destinations: ChannelDestinationsSchema.parse(output) };
+    } catch (error) {
+      return { ...base, destinations: null, error: describeError(error) };
+    }
+  }
+
   private findChannelOwners(channelId: string): LoadedPlugin[] {
     return [...this.plugins.values()]
-      .filter((plugin) => plugin.channels.includes(channelId))
+      .filter((plugin) => plugin.channels.some((channel) => channel.id === channelId))
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
   private reportChannelConflicts(loaded: LoadedPlugin): void {
-    for (const channelId of loaded.channels) {
+    for (const { id: channelId } of loaded.channels) {
       const owners = this.findChannelOwners(channelId);
       if (owners.length < 2) continue;
       const [winner, ...shadowed] = owners;
@@ -645,7 +689,7 @@ export class PluginRuntime {
     let loaded: LoadedPlugin | null = null;
     let ready: Extract<PluginProcessMessage, { type: "ready" }>;
     // A registration that follows ready can arrive before `loaded` exists; keep the latest.
-    let channelsBeforeLoaded: string[] | null = null;
+    let channelsBeforeLoaded: PluginChannelMetadata[] | null = null;
     try {
       ready = await new Promise<Extract<PluginProcessMessage, { type: "ready" }>>(
         (resolve, reject) => {

@@ -1,6 +1,11 @@
 import type { OutputSchema } from "../../output/index.js";
 import { formatCadence, formatDelivery, formatTarget, type ScheduleRow } from "./shared.js";
-import type { ScheduleRecord, ScheduleRunDelivery, ScheduleRunRecord } from "./types.js";
+import type {
+  ScheduleChannelRecord,
+  ScheduleRecord,
+  ScheduleRunDelivery,
+  ScheduleRunRecord,
+} from "./types.js";
 
 export const scheduleSchema: OutputSchema<ScheduleRow> = {
   idField: "id",
@@ -72,6 +77,42 @@ export function toScheduleLogRow(run: ScheduleRunRecord): ScheduleLogRow {
     error: run.error,
     delivery: formatRunDelivery(run.delivery),
   };
+}
+
+export interface ScheduleChannelRow {
+  key: string;
+  channel: string;
+  label: string | null;
+  destination: string | null;
+  to: string | null;
+}
+
+export const scheduleChannelSchema: OutputSchema<ScheduleChannelRow> = {
+  idField: "key",
+  columns: [
+    { header: "CHANNEL", field: "channel", width: 16 },
+    { header: "LABEL", field: "label", width: 20 },
+    { header: "DESTINATION", field: "destination", width: 28 },
+    { header: "TO", field: "to", width: 40 },
+  ],
+};
+
+/** One row per destination; a channel without any gets one row saying why. */
+export function toScheduleChannelRows(channel: ScheduleChannelRecord): ScheduleChannelRow[] {
+  const base = { channel: channel.id, label: channel.label };
+  if (channel.destinations === null) {
+    const reason = channel.error ?? "unknown error";
+    return [{ ...base, key: channel.id, destination: `(unavailable: ${reason})`, to: null }];
+  }
+  if (channel.destinations.length === 0) {
+    return [{ ...base, key: channel.id, destination: "(none listed)", to: null }];
+  }
+  return channel.destinations.map((destination) => ({
+    ...base,
+    key: `${channel.id}:${destination.to}`,
+    destination: destination.label,
+    to: destination.to,
+  }));
 }
 
 export function createScheduleInspectRows(schedule: ScheduleRecord): ScheduleInspectRow[] {

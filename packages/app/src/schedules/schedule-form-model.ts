@@ -4,7 +4,11 @@ import type {
   AgentProvider,
   ProviderSnapshotEntry,
 } from "@getpaseo/protocol/agent-types";
-import type { ScheduleCadence, ScheduleSummary } from "@getpaseo/protocol/schedule/types";
+import type {
+  ScheduleCadence,
+  ScheduleDelivery,
+  ScheduleSummary,
+} from "@getpaseo/protocol/schedule/types";
 import type { FormPreferences } from "@/create-agent-preferences/preferences";
 import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 import {
@@ -87,6 +91,8 @@ export interface ScheduleFormState {
   name: string;
   prompt: string;
   maxRuns: string;
+  /** Where run results are sent; null delivers nowhere. */
+  delivery: ScheduleDelivery | null;
   cadence: ScheduleCadence;
   submitCadence: CronCadence | undefined;
   hosts: ScheduleFormHost[];
@@ -134,6 +140,7 @@ export interface ScheduleFormModel {
   setName: (value: string) => void;
   setPrompt: (value: string) => void;
   setMaxRuns: (value: string) => void;
+  setDelivery: (value: ScheduleDelivery | null) => void;
   setCadence: (value: ScheduleCadence) => void;
   setIsolation: (value: "local" | "worktree") => void;
   setArchiveOnFinish: (value: boolean) => void;
@@ -427,6 +434,12 @@ function buildInitialThinkingDisplay(thinkingOptionId: string): ScheduleFormDisp
   return { label: formatThinkingOptionLabel({ id: thinkingOptionId }) };
 }
 
+function resolveInitialDelivery(
+  schedule: ScheduleFormSnapshot["schedule"],
+): ScheduleDelivery | null {
+  return schedule?.delivery ?? null;
+}
+
 function formatInitialMaxRuns(schedule: ScheduleFormSnapshot["schedule"]): string {
   if (schedule?.maxRuns == null) {
     return "";
@@ -657,6 +670,7 @@ function buildInitialState(snapshot: ScheduleFormSnapshot): ScheduleFormState {
     name: snapshot.schedule?.name ?? "",
     prompt: snapshot.schedule?.prompt ?? "",
     maxRuns: formatInitialMaxRuns(snapshot.schedule),
+    delivery: resolveInitialDelivery(snapshot.schedule),
     cadence: initialCadence,
     submitCadence: resolveInitialSubmitCadence(snapshot.schedule, initialCadence),
     hosts: [...snapshot.hosts],
@@ -1013,6 +1027,8 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
         clearProviderSelection({
           ...state,
           selectedServerId: serverId,
+          // Channels belong to a host; a target picked on another host means nothing here.
+          delivery: null,
           workingDir: "",
           projectDisplay: null,
           selectedProjectOptionId: "",
@@ -1109,6 +1125,9 @@ export function openScheduleForm(snapshot: ScheduleFormSnapshot): ScheduleFormMo
     },
     setMaxRuns(value) {
       publish({ ...state, maxRuns: value });
+    },
+    setDelivery(value) {
+      publish({ ...state, delivery: value });
     },
     setCadence(value) {
       const cadence = normalizeScheduleFormCadence(value, timezone);

@@ -16,6 +16,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
 import { settingsStyles } from "@/styles/settings";
 import type { Theme } from "@/styles/theme";
 import type { ScheduleDerivedState } from "@/schedules/schedule-derivation";
+import type { LastDeliverySummary } from "@/schedules/schedule-delivery";
 import {
   formatCadence,
   formatNextRun,
@@ -58,6 +59,12 @@ export interface ScheduleRowActions {
   onDelete: () => void;
 }
 
+/** Where run results go, resolved to labels by the caller, and how the last delivery went. */
+export interface ScheduleRowDelivery {
+  target: string;
+  lastOutcome: LastDeliverySummary | null;
+}
+
 interface ScheduleRowProps extends ScheduleRowActions {
   serverId: string;
   schedule: ScheduleSummary;
@@ -72,6 +79,8 @@ interface ScheduleRowProps extends ScheduleRowActions {
   /** True when only one host exists and the host name would be redundant. */
   singleHost?: boolean;
   pending?: ScheduleRowPending;
+  /** Present only for schedules that deliver their results. */
+  delivery?: ScheduleRowDelivery | null;
   isFirst: boolean;
 }
 
@@ -153,6 +162,7 @@ export function ScheduleRow({
   serverName,
   singleHost,
   pending,
+  delivery,
   isFirst,
   onEdit,
   onPause,
@@ -206,6 +216,9 @@ export function ScheduleRow({
             <Text style={styles.target} numberOfLines={1}>
               {targetLabel}
             </Text>
+            {delivery ? (
+              <ScheduleDeliveryLine scheduleId={schedule.id} delivery={delivery} />
+            ) : null}
             <Text style={settingsStyles.rowHint} numberOfLines={1}>
               {meta}
             </Text>
@@ -227,6 +240,30 @@ export function ScheduleRow({
         </View>
       </Pressable>
     </View>
+  );
+}
+
+/** "Results to Chat · Team room · Delivered 5 minutes ago", with a failed delivery in red. */
+function ScheduleDeliveryLine({
+  scheduleId,
+  delivery,
+}: {
+  scheduleId: string;
+  delivery: ScheduleRowDelivery;
+}): ReactElement {
+  const outcome = delivery.lastOutcome;
+  return (
+    <Text
+      style={settingsStyles.rowHint}
+      numberOfLines={1}
+      testID={`schedule-row-delivery-${scheduleId}`}
+    >
+      {`Results to ${delivery.target}`}
+      {outcome ? " · " : null}
+      {outcome ? (
+        <Text style={outcome.failed ? styles.deliveryFailed : undefined}>{outcome.text}</Text>
+      ) : null}
+    </Text>
   );
 }
 
@@ -421,5 +458,8 @@ const styles = StyleSheet.create((theme) => ({
   },
   kebabTriggerHovered: {
     backgroundColor: theme.colors.surface2,
+  },
+  deliveryFailed: {
+    color: theme.colors.destructive,
   },
 }));

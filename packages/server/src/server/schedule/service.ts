@@ -20,6 +20,7 @@ import { ScheduleStore } from "./store.js";
 import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
 import type {
   CreateScheduleInput,
+  ScheduleChannel,
   ScheduleDelivery,
   ScheduleExecutionResult,
   ScheduleRun,
@@ -83,8 +84,15 @@ function withDelivery(
   schedule: StoredSchedule,
   delivery: ScheduleDelivery | null | undefined,
 ): StoredSchedule {
-  const { delivery: _previous, ...rest } = schedule;
-  return delivery ? { ...rest, delivery: normalizeDelivery(delivery) } : rest;
+  const { delivery: previous, lastDelivery, ...rest } = schedule;
+  const next = delivery ? normalizeDelivery(delivery) : null;
+  // The last outcome describes the old target; keep it only while the target is unchanged.
+  const unchanged = next !== null && previous?.channel === next.channel && previous.to === next.to;
+  return {
+    ...rest,
+    ...(next ? { delivery: next } : {}),
+    ...(unchanged && lastDelivery ? { lastDelivery } : {}),
+  };
 }
 
 function buildChannelDelivery(
@@ -284,6 +292,8 @@ export interface ScheduleServiceOptions {
   archiveWorkspace: (workspaceId: string) => Promise<void>;
   /** Hands a finished run to the plugin channel named by the schedule; rejects if it failed. */
   deliverToChannel: (channelId: string, delivery: ChannelDelivery) => Promise<void>;
+  /** The outbound channels plugins currently offer, for clients choosing a delivery target. */
+  listChannels: () => Promise<ScheduleChannel[]>;
   now?: () => Date;
   runner?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
 }
@@ -305,6 +315,7 @@ export class ScheduleService {
     channelId: string,
     delivery: ChannelDelivery,
   ) => Promise<void>;
+  private readonly listChannelsFromPlugins: () => Promise<ScheduleChannel[]>;
   private readonly now: () => Date;
   private readonly runner: (
     schedule: StoredSchedule,
@@ -323,6 +334,7 @@ export class ScheduleService {
     this.createPaseoWorktreeWorkspace = options.createPaseoWorktreeWorkspace;
     this.archiveWorkspace = options.archiveWorkspace;
     this.deliverToChannel = options.deliverToChannel;
+    this.listChannelsFromPlugins = options.listChannels;
     this.now = options.now ?? (() => new Date());
     this.runner = options.runner ?? ((schedule, runId) => this.executeSchedule(schedule, runId));
   }
@@ -439,6 +451,10 @@ export class ScheduleService {
       throw new Error(`Schedule not found: ${id}`);
     }
     return schedule;
+  }
+
+  async listChannels(): Promise<ScheduleChannel[]> {
+    return this.listChannelsFromPlugins();
   }
 
   async logs(id: string): Promise<ScheduleRun[]> {
@@ -818,6 +834,7 @@ export class ScheduleService {
     try {
       await this.store.update(schedule.id, (current) => ({
         ...current,
+        ...(current.delivery ? { lastDelivery: { ...record, runId } } : {}),
         runs: current.runs.map((candidate) =>
           candidate.id === runId ? { ...candidate, delivery: record } : candidate,
         ),

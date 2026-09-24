@@ -3038,6 +3038,8 @@ export class Session {
         return this.scheduleSession.handleScheduleRunOnceRequest(msg);
       case "schedule/update":
         return this.scheduleSession.handleScheduleUpdateRequest(msg);
+      case "schedule/channels":
+        return this.scheduleSession.handleScheduleChannelsRequest(msg);
       default:
         return undefined;
     }

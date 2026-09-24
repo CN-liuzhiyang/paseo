@@ -1,6 +1,8 @@
 import { PluginHookHandlers } from "./lifecycle/index.js";
 import {
+  ChannelDestinationsSchema,
   PluginProcessRequestSchema,
+  type PluginChannelMetadata,
   type PluginProcessMessage,
   type PluginProcessRequest,
 } from "./plugin-process-protocol.js";
@@ -124,8 +126,13 @@ function registerProvider(provider: ProviderRegistration): void {
   providers.set(id, { ...provider, id });
 }
 
-function channelIds(): string[] {
-  return [...channels.keys()].sort();
+function channelMetadata(): PluginChannelMetadata[] {
+  return [...channels.values()]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((channel) => {
+      const label = typeof channel.label === "string" ? channel.label.trim() : "";
+      return label ? { id: channel.id, label } : { id: channel.id };
+    });
 }
 
 function registerChannel(channel: ChannelRegistration): void {
@@ -137,19 +144,32 @@ function registerChannel(channel: ChannelRegistration): void {
   if (typeof channel.deliver !== "function") {
     throw new Error(`Plugin channel ${id} must implement deliver()`);
   }
+  if (channel.destinations !== undefined && typeof channel.destinations !== "function") {
+    throw new Error(`Plugin channel ${id} destinations must be a function`);
+  }
   if (channels.has(id)) throw new Error(`Duplicate plugin channel ID: ${id}`);
   channels.set(id, { ...channel, id });
   // Registered after the entry returned, e.g. once settings loaded: tell the host.
-  if (readySent) send({ type: "channels.changed", channels: channelIds() });
+  if (readySent) send({ type: "channels.changed", channels: channelMetadata() });
 }
 
-async function deliverToChannel(
-  message: Extract<PluginProcessRequest, { type: "channel.deliver" }>,
-): Promise<void> {
-  const channel = channels.get(message.channelId);
-  if (!channel) throw new Error(`Unknown plugin channel: ${message.channelId}`);
+function requireChannel(channelId: string): { channel: ChannelRegistration; api: PaseoApi } {
+  const channel = channels.get(channelId);
+  if (!channel) throw new Error(`Unknown plugin channel: ${channelId}`);
   if (!paseo) throw new Error("Plugin Paseo API is unavailable");
-  await channel.deliver(message.delivery, { paseo });
+  return { channel, api: paseo };
+}
+
+async function answerChannelRequest(
+  message: Extract<PluginProcessRequest, { type: "channel.deliver" | "channel.destinations" }>,
+): Promise<unknown> {
+  const { channel, api } = requireChannel(message.channelId);
+  if (message.type === "channel.deliver") {
+    await channel.deliver(message.delivery, { paseo: api });
+    return null;
+  }
+  const destinations = channel.destinations ? await channel.destinations({ paseo: api }) : [];
+  return ChannelDestinationsSchema.parse(jsonTransportValue(destinations));
 }
 
 function providerMetadata(provider: ProviderRegistration) {
@@ -312,7 +332,7 @@ async function initialize(message: Extract<PluginProcessRequest, { type: "initia
     providers: [...providers.values()]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map(providerMetadata),
-    channels: channelIds(),
+    channels: channelMetadata(),
   });
   readySent = true;
 }
@@ -391,9 +411,9 @@ process.on("message", (rawMessage: unknown) => {
     );
     return;
   }
-  if (message.type === "channel.deliver") {
-    void deliverToChannel(message).then(
-      () => send({ type: "result", requestId: message.requestId, output: null }),
+  if (message.type === "channel.deliver" || message.type === "channel.destinations") {
+    void answerChannelRequest(message).then(
+      (output) => send({ type: "result", requestId: message.requestId, output }),
       (error) => send({ type: "error", requestId: message.requestId, error: describeError(error) }),
     );
     return;
@@ -459,7 +479,11 @@ process.on("message", (rawMessage: unknown) => {
 });
 
 function answerWhileStopping(message: PluginProcessRequest): void {
-  if (message.type === "provider.catalog_key" || message.type === "channel.deliver") {
+  if (
+    message.type === "provider.catalog_key" ||
+    message.type === "channel.deliver" ||
+    message.type === "channel.destinations"
+  ) {
     send({ type: "error", requestId: message.requestId, error: "Plugin is stopping" });
   } else if (message.type === "provider.connect") {
     send({

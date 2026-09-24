@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import { selectDaemonTarget } from "../../utils/daemon-target.js";
 
 import { createScheduleCommand } from "./index.js";
+import { toScheduleChannelRows } from "./schema.js";
 import {
   compileEveryPresetToCron,
   parseDeliverFlag,
@@ -350,6 +351,59 @@ describe("--deliver", () => {
       deliver: "chat:general",
     });
     expect(await parseUpdate(["--no-deliver"])).toMatchObject({ deliver: false });
+  });
+});
+
+describe("schedule channels rows", () => {
+  test("one row per destination, and one explaining a channel without any", () => {
+    expect(
+      toScheduleChannelRows({
+        id: "chat",
+        label: "Chat",
+        pluginId: "notify",
+        destinations: [
+          { to: "room-1", label: "Team room" },
+          { to: "room-2", label: "Releases" },
+        ],
+      }),
+    ).toEqual([
+      {
+        key: "chat:room-1",
+        channel: "chat",
+        label: "Chat",
+        destination: "Team room",
+        to: "room-1",
+      },
+      {
+        key: "chat:room-2",
+        channel: "chat",
+        label: "Chat",
+        destination: "Releases",
+        to: "room-2",
+      },
+    ]);
+    expect(
+      toScheduleChannelRows({ id: "mail", label: null, pluginId: "notify", destinations: [] }),
+    ).toEqual([
+      { key: "mail", channel: "mail", label: null, destination: "(none listed)", to: null },
+    ]);
+    expect(
+      toScheduleChannelRows({
+        id: "pager",
+        label: null,
+        pluginId: "notify",
+        destinations: null,
+        error: "token expired",
+      }),
+    ).toEqual([
+      {
+        key: "pager",
+        channel: "pager",
+        label: null,
+        destination: "(unavailable: token expired)",
+        to: null,
+      },
+    ]);
   });
 });
 

@@ -577,6 +577,10 @@ type ScheduleUpdatePayload = Extract<
   SessionOutboundMessage,
   { type: "schedule/update/response" }
 >["payload"];
+type ScheduleChannelsPayload = Extract<
+  SessionOutboundMessage,
+  { type: "schedule/channels/response" }
+>["payload"];
 export type FetchAgentTimelinePayload = FetchAgentTimelineResponseMessage["payload"];
 export type AgentForkContextPayload = AgentForkContextResponseMessage["payload"];
 
@@ -5869,6 +5873,15 @@ export class DaemonClient {
         ...(options.delivery ? { delivery: options.delivery } : {}),
       },
       responseType: "schedule/create/response",
+    });
+  }
+
+  /** Outbound channels plugins offer as schedule delivery targets, with their destinations. */
+  async scheduleChannels(requestId?: string): Promise<ScheduleChannelsPayload> {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "schedule/channels" },
+      responseType: "schedule/channels/response",
     });
   }
 

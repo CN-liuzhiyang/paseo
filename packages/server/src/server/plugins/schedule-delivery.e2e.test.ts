@@ -49,11 +49,21 @@ export default function contribute(server: PluginServerContext) {
     deliver(delivery, context) {
       deliveries.push({ channel: "chat", delivery, hasPaseo: typeof context.paseo === "object" });
     },
+    async destinations(context) {
+      if (typeof context.paseo !== "object") throw new Error("no Paseo API in context");
+      return [
+        { to: "general", label: "General" },
+        { to: "room:42", label: "Team room" },
+      ];
+    },
   });
   server.registerChannel!({
     id: "broken",
     async deliver() {
       throw new Error("vendor rejected the message");
+    },
+    destinations() {
+      throw new Error("vendor directory is down");
     },
   });
   // Registered after the entry returned, as a plugin does once its settings load.
@@ -105,12 +115,43 @@ export default function contribute(server: PluginServerContext) {
       status: "running",
     });
 
+    // "late" registers on a timer after the entry returns.
+    await expect
+      .poll(async () => (await client.scheduleChannels()).channels.map((channel) => channel.id))
+      .toEqual(["broken", "chat", "late"]);
+    const listed = await client.scheduleChannels();
+    expect(listed.error).toBeNull();
+    expect(listed.channels).toEqual([
+      {
+        id: "broken",
+        label: null,
+        pluginId: "channels",
+        destinations: null,
+        error: "vendor directory is down",
+      },
+      {
+        id: "chat",
+        label: "Chat",
+        pluginId: "channels",
+        destinations: [
+          { to: "general", label: "General" },
+          { to: "room:42", label: "Team room" },
+        ],
+      },
+      { id: "late", label: null, pluginId: "channels", destinations: [] },
+    ]);
+
     const chatSchedule = await createSchedule("Digest", "chat", "Respond with exactly: DIGEST-OK");
     const chatRun = await runOnce(chatSchedule);
     expect(chatRun).toMatchObject({
       status: "succeeded",
       output: "DIGEST-OK",
       delivery: { status: "delivered" },
+    });
+    const summaries = await client.scheduleList();
+    expect(summaries.schedules.find((schedule) => schedule.id === chatSchedule)).toMatchObject({
+      delivery: { channel: "chat", to: "general" },
+      lastDelivery: { runId: chatRun.id, status: "delivered" },
     });
 
     const lateSchedule = await createSchedule("Late", "late", "Respond with exactly: LATE-OK");

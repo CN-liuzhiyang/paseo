@@ -109,7 +109,16 @@ paseo schedule update <id> --deliver chat:releases
 paseo schedule update <id> --no-deliver
 ```
 
-The text before the first `:` is the channel ID; the rest is an address only that channel interprets. The channel is not checked when you create the schedule. `schedule inspect` shows the target and `schedule logs` shows each run's delivery status. A failed delivery is recorded on the run and does not change the run's own status; Paseo does not retry it.
+The text before the first `:` is the channel ID; the rest is an address only that channel interprets. `paseo schedule channels` lists the channels running plugins offer and, for each, the destinations it names, with the `to` to pass:
+
+```bash
+paseo schedule channels
+# CHANNEL  LABEL      DESTINATION  TO
+# chat     Team chat  General      general
+# chat     Team chat  Releases     releases
+```
+
+A channel that could not list its destinations shows `(unavailable: <error>)`. The channel is not checked when you create the schedule. `schedule inspect` shows the target and `schedule logs` shows each run's delivery status. A failed delivery is recorded on the run and does not change the run's own status; Paseo does not retry it.
 
 ## Cadence
 

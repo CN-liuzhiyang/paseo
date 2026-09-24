@@ -46,7 +46,8 @@ export class ScheduleSession {
           | "schedule/resume"
           | "schedule/delete"
           | "schedule/run-once"
-          | "schedule/update";
+          | "schedule/update"
+          | "schedule/channels";
       }
     >,
     error: unknown,
@@ -125,6 +126,20 @@ export class ScheduleSession {
           schedule,
           error: null,
         },
+      });
+    } catch (error) {
+      this.emitScheduleRpcError(request, error);
+    }
+  }
+
+  async handleScheduleChannelsRequest(
+    request: Extract<SessionInboundMessage, { type: "schedule/channels" }>,
+  ): Promise<void> {
+    try {
+      const channels = await this.scheduleService.listChannels();
+      this.host.emit({
+        type: "schedule/channels/response",
+        payload: { requestId: request.requestId, channels, error: null },
       });
     } catch (error) {
       this.emitScheduleRpcError(request, error);
