@@ -3,6 +3,7 @@ import path from "node:path";
 import { stat, rm } from "node:fs/promises";
 import type pino from "pino";
 import type { ProviderRegistration } from "@getpaseo/plugin/server/provider";
+import type { ChannelDelivery } from "@getpaseo/plugin/server";
 import {
   PluginIdSchema,
   type PluginLogEntry,
@@ -37,6 +38,7 @@ interface PluginRuntimePort {
   clearLogs(pluginId: string): void;
   getProviderRegistrations?(pluginId: string): readonly PluginProviderMetadata[];
   connectProvider: PluginRuntime["connectProvider"];
+  deliverToChannel?: PluginRuntime["deliverToChannel"];
   getProviderCatalogCacheKey?: PluginRuntime["getProviderCatalogCacheKey"];
   validatePlugin?(path: string): Promise<void>;
   startPlugin(pluginId: string, path: string, canPublish: () => boolean): Promise<void>;
@@ -414,6 +416,17 @@ export class PluginService {
 
   invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
     return this.runtime.invoke(pluginId, method, input);
+  }
+
+  /** Resolves once the plugin that registered `channelId` accepted the delivery. */
+  async deliverToChannel(channelId: string, delivery: ChannelDelivery): Promise<void> {
+    if (this.configStore.get().pluginsEnabled !== true) {
+      throw new Error(`Cannot deliver to channel "${channelId}": plugins are disabled`);
+    }
+    if (!this.runtime.deliverToChannel) {
+      throw new Error("Plugin runtime cannot deliver to channels");
+    }
+    await this.runtime.deliverToChannel(channelId, delivery);
   }
 
   async stopAllPlugins(): Promise<void> {

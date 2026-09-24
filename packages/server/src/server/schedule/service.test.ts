@@ -78,7 +78,11 @@ let workspaceArchiveInProgress = false;
 
 type TestScheduleServiceOptions = Omit<
   ScheduleServiceOptions,
-  "createAgent" | "createDirectoryWorkspace" | "createPaseoWorktreeWorkspace" | "archiveWorkspace"
+  | "createAgent"
+  | "createDirectoryWorkspace"
+  | "createPaseoWorktreeWorkspace"
+  | "archiveWorkspace"
+  | "deliverToChannel"
 > & {
   agentManager: AgentManager;
   providerSnapshotManager: Pick<ProviderSnapshotManager, "resolveCreateConfig">;
@@ -86,6 +90,7 @@ type TestScheduleServiceOptions = Omit<
   createDirectoryWorkspace?: ScheduleServiceOptions["createDirectoryWorkspace"];
   createPaseoWorktreeWorkspace?: ScheduleServiceOptions["createPaseoWorktreeWorkspace"];
   archiveWorkspace?: ScheduleServiceOptions["archiveWorkspace"];
+  deliverToChannel?: ScheduleServiceOptions["deliverToChannel"];
 };
 
 function createScheduleService(options: TestScheduleServiceOptions): ScheduleService {
@@ -185,6 +190,11 @@ function createScheduleService(options: TestScheduleServiceOptions): ScheduleSer
         };
       }),
     archiveWorkspace: options.archiveWorkspace ?? archiveDefaultWorkspace,
+    deliverToChannel:
+      options.deliverToChannel ??
+      (async (channelId) => {
+        throw new Error(`No channel "${channelId}" in this test`);
+      }),
   });
 }
 
@@ -292,6 +302,12 @@ function buildAgentRecord(params: {
     archivedAt: params.archivedAt ?? null,
   };
 }
+
+function createDeliverSpy() {
+  return vi.fn<ScheduleServiceOptions["deliverToChannel"]>(resolveDelivery);
+}
+
+async function resolveDelivery(): Promise<void> {}
 
 describe("ScheduleService", () => {
   let tempDir: string;
@@ -3276,5 +3292,203 @@ describe("ScheduleService", () => {
     now = new Date("2026-01-01T00:01:00.000Z");
     expect(await service.completeForAgent(agentId)).toBe(1);
     expect(await service.completeForAgent(agentId)).toBe(0);
+  });
+  describe("delivery", () => {
+    const newAgentTarget = () => ({
+      type: "new-agent" as const,
+      config: { provider: "claude", cwd: tempDir },
+    });
+
+    test("hands a succeeded run's output to the channel and records it as delivered", async () => {
+      const deliverToChannel = createDeliverSpy();
+      const service = createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runner: async () => ({
+          agentId: "00000000-0000-0000-0000-000000000001",
+          output: "daily summary",
+        }),
+        deliverToChannel,
+      });
+
+      const created = await service.create({
+        name: "Daily",
+        prompt: "Summarize",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: newAgentTarget(),
+        delivery: { channel: " chat ", to: " general " },
+      });
+      expect(created.delivery).toEqual({ channel: "chat", to: "general" });
+
+      now = new Date("2026-01-01T00:01:00.000Z");
+      await service.tick();
+
+      const inspected = await service.inspect(created.id);
+      const run = inspected.runs[0];
+      expect(deliverToChannel).toHaveBeenCalledTimes(1);
+      expect(deliverToChannel).toHaveBeenCalledWith("chat", {
+        to: "general",
+        idempotencyKey: run?.id,
+        source: { kind: "schedule", scheduleId: created.id, scheduleName: "Daily", runId: run?.id },
+        status: "succeeded",
+        text: "daily summary",
+        agentId: "00000000-0000-0000-0000-000000000001",
+      });
+      expect(run).toMatchObject({
+        status: "succeeded",
+        delivery: { status: "delivered", at: "2026-01-01T00:01:00.000Z" },
+      });
+      expect(run?.delivery?.error).toBeUndefined();
+    });
+
+    test("delivers a failed run with its error so the recipient learns it did not work", async () => {
+      const deliverToChannel = createDeliverSpy();
+      const service = createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runner: async () => {
+          throw new Error("provider unavailable");
+        },
+        deliverToChannel,
+      });
+
+      const created = await service.create({
+        prompt: "Summarize",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: newAgentTarget(),
+        delivery: { channel: "chat", to: "general" },
+      });
+
+      const after = await service.runOnce(created.id);
+      const run = after.runs[0];
+      expect(deliverToChannel).toHaveBeenCalledWith(
+        "chat",
+        expect.objectContaining({
+          status: "failed",
+          text: "provider unavailable",
+          agentId: null,
+          idempotencyKey: run?.id,
+          source: { kind: "schedule", scheduleId: created.id, scheduleName: null, runId: run?.id },
+        }),
+      );
+      expect(run).toMatchObject({
+        status: "failed",
+        error: "provider unavailable",
+        delivery: { status: "delivered" },
+      });
+    });
+
+    test("records a delivery failure without changing the run or the schedule", async () => {
+      const service = createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runner: async () => ({ agentId: null, output: "ok" }),
+        deliverToChannel: async () => {
+          throw new Error("vendor rejected the message");
+        },
+      });
+
+      const created = await service.create({
+        prompt: "Summarize",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: newAgentTarget(),
+        delivery: { channel: "chat", to: "general" },
+      });
+
+      now = new Date("2026-01-01T00:01:00.000Z");
+      await service.tick();
+
+      const inspected = await service.inspect(created.id);
+      expect(inspected.status).toBe("active");
+      expect(inspected.nextRunAt).toBe("2026-01-01T00:02:00.000Z");
+      expect(inspected.runs[0]).toMatchObject({
+        status: "succeeded",
+        output: "ok",
+        error: null,
+        delivery: {
+          status: "failed",
+          at: "2026-01-01T00:01:00.000Z",
+          error: "vendor rejected the message",
+        },
+      });
+    });
+
+    test("does not deliver when the schedule has no delivery target", async () => {
+      const deliverToChannel = createDeliverSpy();
+      const service = createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runner: async () => ({ agentId: null, output: "ok" }),
+        deliverToChannel,
+      });
+
+      const created = await service.create({
+        prompt: "Summarize",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: newAgentTarget(),
+      });
+      expect(created).not.toHaveProperty("delivery");
+
+      const after = await service.runOnce(created.id);
+      expect(deliverToChannel).not.toHaveBeenCalled();
+      expect(after.runs[0]?.status).toBe("succeeded");
+      expect(after.runs[0]).not.toHaveProperty("delivery");
+    });
+
+    test("update sets and clears the delivery target", async () => {
+      const deliverToChannel = createDeliverSpy();
+      const service = createScheduleService({
+        paseoHome: tempDir,
+        logger: createTestLogger(),
+        agentManager: new AgentManager({ logger: createTestLogger() }),
+        agentStorage,
+        providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+        now: () => now,
+        runner: async () => ({ agentId: null, output: "ok" }),
+        deliverToChannel,
+      });
+
+      const created = await service.create({
+        prompt: "Summarize",
+        cadence: { type: "every", everyMs: 60_000 },
+        target: newAgentTarget(),
+      });
+
+      const withTarget = await service.update({
+        id: created.id,
+        delivery: { channel: "chat", to: "team" },
+      });
+      expect(withTarget.delivery).toEqual({ channel: "chat", to: "team" });
+
+      const unrelated = await service.update({ id: created.id, name: "Renamed" });
+      expect(unrelated.delivery).toEqual({ channel: "chat", to: "team" });
+
+      const cleared = await service.update({ id: created.id, delivery: null });
+      expect(cleared).not.toHaveProperty("delivery");
+      expect((await service.inspect(created.id)).delivery).toBeUndefined();
+
+      await service.runOnce(created.id);
+      expect(deliverToChannel).not.toHaveBeenCalled();
+
+      await expect(
+        service.update({ id: created.id, delivery: { channel: "chat", to: "  " } }),
+      ).rejects.toThrow("delivery address cannot be empty");
+    });
   });
 });

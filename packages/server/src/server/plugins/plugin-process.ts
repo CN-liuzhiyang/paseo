@@ -9,7 +9,7 @@ import * as pluginSharedRuntime from "@getpaseo/plugin";
 import * as pluginProviderRuntime from "@getpaseo/plugin/server/provider";
 import * as pluginAcpRuntime from "@getpaseo/plugin/server/acp";
 import type { SettingsDefinition, PluginRpcContract } from "@getpaseo/plugin";
-import type { PluginHandlerContext } from "@getpaseo/plugin/server";
+import type { ChannelRegistration, PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { ZodType } from "zod";
 import {
   ProviderEventSchema,
@@ -49,6 +49,8 @@ const hooks = new PluginHookHandlers(() => {
 });
 const handlers = new Map<string, RegisteredRpc>();
 const providers = new Map<string, ProviderRegistration>();
+const channels = new Map<string, ChannelRegistration>();
+let readySent = false;
 const providerConnections = new Map<
   string,
   { connection: ProviderConnection; unsubscribe: () => void }
@@ -120,6 +122,34 @@ function registerProvider(provider: ProviderRegistration): void {
   }
   if (providers.has(id)) throw new Error(`Duplicate plugin provider ID: ${id}`);
   providers.set(id, { ...provider, id });
+}
+
+function channelIds(): string[] {
+  return [...channels.keys()].sort();
+}
+
+function registerChannel(channel: ChannelRegistration): void {
+  if (stopping) throw new Error("Plugin is stopping");
+  const id = typeof channel?.id === "string" ? channel.id.trim() : "";
+  if (!/^[a-z][a-z0-9._-]*$/.test(id)) {
+    throw new Error(`Invalid plugin channel ID: ${String(channel?.id)}`);
+  }
+  if (typeof channel.deliver !== "function") {
+    throw new Error(`Plugin channel ${id} must implement deliver()`);
+  }
+  if (channels.has(id)) throw new Error(`Duplicate plugin channel ID: ${id}`);
+  channels.set(id, { ...channel, id });
+  // Registered after the entry returned, e.g. once settings loaded: tell the host.
+  if (readySent) send({ type: "channels.changed", channels: channelIds() });
+}
+
+async function deliverToChannel(
+  message: Extract<PluginProcessRequest, { type: "channel.deliver" }>,
+): Promise<void> {
+  const channel = channels.get(message.channelId);
+  if (!channel) throw new Error(`Unknown plugin channel: ${message.channelId}`);
+  if (!paseo) throw new Error("Plugin Paseo API is unavailable");
+  await channel.deliver(message.delivery, { paseo });
 }
 
 function providerMetadata(provider: ProviderRegistration) {
@@ -237,6 +267,7 @@ function evaluateBundle(bundle: string, api: PaseoApi): void {
     handle: register,
     registerProvider,
     registerSettings,
+    registerChannel,
     on: hooks.on,
     before: hooks.before,
     paseo: api,
@@ -281,7 +312,9 @@ async function initialize(message: Extract<PluginProcessRequest, { type: "initia
     providers: [...providers.values()]
       .sort((left, right) => left.id.localeCompare(right.id))
       .map(providerMetadata),
+    channels: channelIds(),
   });
+  readySent = true;
 }
 
 async function shutdown(): Promise<void> {
@@ -342,24 +375,7 @@ process.on("message", (rawMessage: unknown) => {
     return;
   }
   if (stopping) {
-    if (message.type === "provider.catalog_key") {
-      send({ type: "error", requestId: message.requestId, error: "Plugin is stopping" });
-    } else if (message.type === "provider.connect") {
-      send({
-        type: "provider.connect_failed",
-        connectionId: message.connectionId,
-        error: "Plugin is stopping",
-      });
-    } else if (message.type === "provider.send") {
-      send({
-        type: "provider.rejected",
-        connectionId: message.connectionId,
-        acceptanceId: message.acceptanceId,
-        error: "Plugin is stopping",
-      });
-    } else if (message.type === "provider.close") {
-      send({ type: "provider.closed", connectionId: message.connectionId });
-    }
+    answerWhileStopping(message);
     return;
   }
   if (message.type === "provider.catalog_key") {
@@ -372,6 +388,13 @@ process.on("message", (rawMessage: unknown) => {
       send({ type: "result", requestId: message.requestId, output });
     })().catch((error) =>
       send({ type: "error", requestId: message.requestId, error: describeError(error) }),
+    );
+    return;
+  }
+  if (message.type === "channel.deliver") {
+    void deliverToChannel(message).then(
+      () => send({ type: "result", requestId: message.requestId, output: null }),
+      (error) => send({ type: "error", requestId: message.requestId, error: describeError(error) }),
     );
     return;
   }
@@ -434,6 +457,27 @@ process.on("message", (rawMessage: unknown) => {
       (error) => send({ type: "error", requestId: message.requestId, error: describeError(error) }),
     );
 });
+
+function answerWhileStopping(message: PluginProcessRequest): void {
+  if (message.type === "provider.catalog_key" || message.type === "channel.deliver") {
+    send({ type: "error", requestId: message.requestId, error: "Plugin is stopping" });
+  } else if (message.type === "provider.connect") {
+    send({
+      type: "provider.connect_failed",
+      connectionId: message.connectionId,
+      error: "Plugin is stopping",
+    });
+  } else if (message.type === "provider.send") {
+    send({
+      type: "provider.rejected",
+      connectionId: message.connectionId,
+      acceptanceId: message.acceptanceId,
+      error: "Plugin is stopping",
+    });
+  } else if (message.type === "provider.close") {
+    send({ type: "provider.closed", connectionId: message.connectionId });
+  }
+}
 
 function handleHookMessage(
   message: Extract<PluginProcessRequest, { type: "hook" | "hook.cancel" }>,

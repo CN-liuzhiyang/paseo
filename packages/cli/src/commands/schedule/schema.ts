@@ -1,6 +1,6 @@
 import type { OutputSchema } from "../../output/index.js";
-import { formatCadence, formatTarget, type ScheduleRow } from "./shared.js";
-import type { ScheduleRecord, ScheduleRunRecord } from "./types.js";
+import { formatCadence, formatDelivery, formatTarget, type ScheduleRow } from "./shared.js";
+import type { ScheduleRecord, ScheduleRunDelivery, ScheduleRunRecord } from "./types.js";
 
 export const scheduleSchema: OutputSchema<ScheduleRow> = {
   idField: "id",
@@ -39,6 +39,7 @@ export interface ScheduleLogRow {
   agentId: string | null;
   output: string | null;
   error: string | null;
+  delivery: string | null;
 }
 
 export const scheduleLogSchema: OutputSchema<ScheduleLogRow> = {
@@ -50,8 +51,16 @@ export const scheduleLogSchema: OutputSchema<ScheduleLogRow> = {
     { header: "AGENT", field: "agentId", width: 12 },
     { header: "OUTPUT", field: "output", width: 40 },
     { header: "ERROR", field: "error", width: 40 },
+    { header: "DELIVERY", field: "delivery", width: 30 },
   ],
 };
+
+function formatRunDelivery(delivery: ScheduleRunDelivery | undefined): string | null {
+  if (!delivery) return null;
+  return delivery.status === "failed" && delivery.error
+    ? `failed: ${delivery.error}`
+    : delivery.status;
+}
 
 export function toScheduleLogRow(run: ScheduleRunRecord): ScheduleLogRow {
   return {
@@ -61,6 +70,7 @@ export function toScheduleLogRow(run: ScheduleRunRecord): ScheduleLogRow {
     agentId: run.agentId ? run.agentId.slice(0, 7) : null,
     output: run.output,
     error: run.error,
+    delivery: formatRunDelivery(run.delivery),
   };
 }
 
@@ -85,6 +95,7 @@ export function createScheduleInspectRows(schedule: ScheduleRecord): ScheduleIns
     { key: "PausedAt", value: schedule.pausedAt ?? "null" },
     { key: "ExpiresAt", value: schedule.expiresAt ?? "null" },
     { key: "MaxRuns", value: schedule.maxRuns == null ? "null" : `${schedule.maxRuns}` },
+    { key: "Delivery", value: formatDelivery(schedule.delivery) ?? "null" },
     { key: "RunCount", value: `${schedule.runs.length}` },
   ];
 }

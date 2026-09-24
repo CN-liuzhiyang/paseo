@@ -5,6 +5,7 @@ import type {
   CreateScheduleInput,
   ScheduleCadence,
   ScheduleDaemonClient,
+  ScheduleDelivery,
   ScheduleListItem,
   ScheduleRecord,
   ScheduleTarget,
@@ -153,6 +154,7 @@ export function parseScheduleCreateInput(options: {
   maxRuns?: string;
   expiresIn?: string;
   runNow?: boolean;
+  deliver?: string;
 }): CreateScheduleInput {
   const prompt = options.prompt.trim();
   if (!prompt) {
@@ -219,7 +221,6 @@ export function parseScheduleCreateInput(options: {
     options.expiresIn === undefined
       ? undefined
       : new Date(Date.now() + parseDuration(options.expiresIn)).toISOString();
-
   return {
     prompt,
     cadence,
@@ -228,7 +229,31 @@ export function parseScheduleCreateInput(options: {
     ...(options.name?.trim() ? { name: options.name.trim() } : {}),
     ...(maxRuns !== undefined ? { maxRuns } : {}),
     ...(expiresAt ? { expiresAt } : {}),
+    ...parseCreateDelivery(options.deliver),
   };
+}
+
+function parseCreateDelivery(deliver: string | undefined): { delivery?: ScheduleDelivery } {
+  return deliver === undefined ? {} : { delivery: parseDeliverFlag(deliver) };
+}
+
+/** `--deliver <channel:to>`: split on the first colon, so the address may contain colons. */
+export function parseDeliverFlag(value: string): ScheduleDelivery {
+  const separator = value.indexOf(":");
+  const channel = separator === -1 ? "" : value.slice(0, separator).trim();
+  const to = separator === -1 ? "" : value.slice(separator + 1).trim();
+  if (!channel || !to) {
+    throw {
+      code: "INVALID_DELIVERY",
+      message: "--deliver must be <channel:to> with a non-empty channel and address",
+      details: "The channel is an ID registered by a plugin, for example: --deliver chat:general",
+    } satisfies CommandError;
+  }
+  return { channel, to };
+}
+
+export function formatDelivery(delivery: ScheduleDelivery | undefined): string | null {
+  return delivery ? `${delivery.channel}:${delivery.to}` : null;
 }
 
 function resolveRunOnCreate(
@@ -253,6 +278,8 @@ export interface ScheduleUpdateOptionsInput {
   expiresIn?: string;
   clearMaxRuns?: boolean;
   clearExpires?: boolean;
+  /** A `<channel:to>` target, or false to clear it (commander's --no-deliver). */
+  deliver?: string | false;
 }
 
 export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): UpdateScheduleInput {
@@ -270,6 +297,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
   const expiresAt = parseUpdateExpiresAt(options);
   const name = parseUpdateName(options);
   const prompt = parseUpdatePrompt(options);
+  const delivery = parseUpdateDelivery(options);
 
   if (
     name === undefined &&
@@ -277,7 +305,8 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     cadence === undefined &&
     newAgentConfig === undefined &&
     maxRuns === undefined &&
-    expiresAt === undefined
+    expiresAt === undefined &&
+    delivery === undefined
   ) {
     throw {
       code: "NO_UPDATES",
@@ -293,7 +322,20 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     ...(newAgentConfig !== undefined ? { newAgentConfig } : {}),
     ...(maxRuns !== undefined ? { maxRuns } : {}),
     ...(expiresAt !== undefined ? { expiresAt } : {}),
+    ...(delivery !== undefined ? { delivery } : {}),
   };
+}
+
+function parseUpdateDelivery(
+  options: ScheduleUpdateOptionsInput,
+): ScheduleDelivery | null | undefined {
+  if (options.deliver === undefined) {
+    return undefined;
+  }
+  if (options.deliver === false) {
+    return null;
+  }
+  return parseDeliverFlag(options.deliver);
 }
 
 function parseCadenceFromFlags(
@@ -459,6 +501,7 @@ export interface ScheduleRow {
   status: string;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  delivery: string | null;
 }
 
 export function toScheduleRow(schedule: ScheduleListItem | ScheduleRecord): ScheduleRow {
@@ -470,5 +513,6 @@ export function toScheduleRow(schedule: ScheduleListItem | ScheduleRecord): Sche
     status: schedule.status,
     nextRunAt: schedule.nextRunAt,
     lastRunAt: schedule.lastRunAt,
+    delivery: formatDelivery(schedule.delivery),
   };
 }

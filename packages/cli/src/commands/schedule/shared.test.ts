@@ -2,8 +2,10 @@ import { describe, expect, test, vi } from "vitest";
 
 import { selectDaemonTarget } from "../../utils/daemon-target.js";
 
+import { createScheduleCommand } from "./index.js";
 import {
   compileEveryPresetToCron,
+  parseDeliverFlag,
   parseScheduleCreateInput,
   parseScheduleUpdateInput,
 } from "./shared.js";
@@ -299,6 +301,55 @@ describe("parseScheduleUpdateInput", () => {
     expect(() =>
       parseScheduleUpdateInput({ id: "abc", expiresIn: "1h", clearExpires: true }),
     ).toThrow(expect.objectContaining({ code: "CONFLICTING_EXPIRES" }));
+  });
+});
+
+describe("--deliver", () => {
+  test("splits channel and address on the first colon", () => {
+    expect(parseDeliverFlag("chat:general")).toEqual({ channel: "chat", to: "general" });
+    expect(parseDeliverFlag(" chat : room:42 ")).toEqual({ channel: "chat", to: "room:42" });
+  });
+
+  test.each(["chat", ":general", "chat:", " : ", ""])("rejects %j", (value) => {
+    expect(() => parseDeliverFlag(value)).toThrow(
+      expect.objectContaining({ code: "INVALID_DELIVERY" }),
+    );
+  });
+
+  test("create sends the delivery target", () => {
+    expect(parseScheduleCreateInput({ ...baseCron, deliver: "chat:general" }).delivery).toEqual({
+      channel: "chat",
+      to: "general",
+    });
+    expect(parseScheduleCreateInput(baseCron)).not.toHaveProperty("delivery");
+  });
+
+  test("update sets the target, and false (from --no-deliver) clears it", () => {
+    expect(parseScheduleUpdateInput({ id: "abc", deliver: "chat:general" })).toEqual({
+      id: "abc",
+      delivery: { channel: "chat", to: "general" },
+    });
+    expect(parseScheduleUpdateInput({ id: "abc", deliver: false })).toEqual({
+      id: "abc",
+      delivery: null,
+    });
+  });
+
+  test("commander maps --deliver and --no-deliver onto the deliver option", async () => {
+    const parseUpdate = async (args: string[]) => {
+      const schedule = createScheduleCommand();
+      const update = schedule.commands.find((command) => command.name() === "update");
+      let captured: unknown;
+      update?.action((_id: string, options: unknown) => {
+        captured = options;
+      });
+      await schedule.parseAsync(["update", "abc", ...args], { from: "user" });
+      return captured;
+    };
+    expect(await parseUpdate(["--deliver", "chat:general"])).toMatchObject({
+      deliver: "chat:general",
+    });
+    expect(await parseUpdate(["--no-deliver"])).toMatchObject({ deliver: false });
   });
 });
 

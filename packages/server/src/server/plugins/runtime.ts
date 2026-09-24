@@ -1,4 +1,8 @@
-import type { PluginBeforeRequests, PluginLifecycleEvents } from "@getpaseo/plugin/server";
+import type {
+  ChannelDelivery,
+  PluginBeforeRequests,
+  PluginLifecycleEvents,
+} from "@getpaseo/plugin/server";
 import { validateBeforeRequest, validateBeforeResult } from "./lifecycle/index.js";
 import { fork } from "node:child_process";
 import { stat } from "node:fs/promises";
@@ -31,6 +35,8 @@ import { PluginSessionSocket } from "./session-socket.js";
 const CLIENT_ENTRY_FILENAMES = ["index.client.ts", "index.client.tsx"] as const;
 const SERVER_ENTRY_FILENAMES = ["index.server.ts", "index.server.tsx"] as const;
 const REQUEST_TIMEOUT_MS = 30_000;
+// A channel posts to an outside service, which can be slower than an in-process RPC.
+const CHANNEL_DELIVERY_TIMEOUT_MS = 60_000;
 const MAX_LOG_ENTRIES = 500;
 const MAX_LOG_BYTES = 256 * 1024;
 const MAX_LOG_LINE_BYTES = 16 * 1024;
@@ -65,6 +71,7 @@ interface LoadedPlugin {
   methods: ReadonlySet<string>;
   hooks: { events: string[]; before: string[] };
   providers: readonly PluginProviderMetadata[];
+  channels: readonly string[];
   child: PluginChild | null;
   outputCapture: PluginOutputCapture | null;
   pending: Map<string, PendingInvocation>;
@@ -329,6 +336,7 @@ export class PluginRuntime {
       throw new Error(`Plugin start cancelled: ${pluginId}`);
     }
     this.plugins.set(pluginId, loaded);
+    this.reportChannelConflicts(loaded);
     this.appendLog(pluginId, "stdout", "[paseo] Plugin ready");
   }
 
@@ -417,6 +425,43 @@ export class PluginRuntime {
       this.abandonProviderConnect(loaded, connectionId, state, error);
     });
     return connected.finally(() => clearTimeout(timeout));
+  }
+
+  /**
+   * Hand one delivery to the running plugin that registered `channelId`. When several plugins
+   * register the same ID, the one with the lowest plugin ID receives it; the others are told so in
+   * their logs.
+   */
+  async deliverToChannel(channelId: string, delivery: ChannelDelivery): Promise<void> {
+    const owner = this.findChannelOwners(channelId)[0];
+    if (!owner) throw new Error(`No running plugin provides channel "${channelId}"`);
+    await this.request(
+      owner,
+      { type: "channel.deliver", requestId: randomUUID(), channelId, delivery },
+      {
+        timeoutMs: CHANNEL_DELIVERY_TIMEOUT_MS,
+        timeoutMessage: `Channel "${channelId}" (plugin ${owner.id}) did not finish delivering within ${CHANNEL_DELIVERY_TIMEOUT_MS / 1000}s`,
+      },
+    );
+  }
+
+  private findChannelOwners(channelId: string): LoadedPlugin[] {
+    return [...this.plugins.values()]
+      .filter((plugin) => plugin.channels.includes(channelId))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private reportChannelConflicts(loaded: LoadedPlugin): void {
+    for (const channelId of loaded.channels) {
+      const owners = this.findChannelOwners(channelId);
+      if (owners.length < 2) continue;
+      const [winner, ...shadowed] = owners;
+      for (const plugin of shadowed) {
+        const message = `[paseo] Channel "${channelId}" is also registered by plugin ${winner.id}; deliveries go to ${winner.id}`;
+        this.appendLog(plugin.id, "stderr", message);
+        this.logger.error({ channelId, pluginId: plugin.id, owner: winner.id }, message);
+      }
+    }
   }
 
   getLogs(pluginId: string): PluginLogEntry[] {
@@ -517,6 +562,7 @@ export class PluginRuntime {
   private request(
     loaded: LoadedPlugin,
     message: Extract<PluginProcessRequest, { requestId: string }>,
+    options: { timeoutMs?: number; timeoutMessage?: string } = {},
   ): Promise<unknown> {
     const child = loaded.child;
     const pluginId = loaded.id;
@@ -528,8 +574,10 @@ export class PluginRuntime {
         if (message.type === "hook") {
           void send(child, { type: "hook.cancel", requestId }).catch(() => {});
         }
-        reject(new Error(`Plugin RPC timed out: ${pluginId}.${message.type}`));
-      }, REQUEST_TIMEOUT_MS);
+        reject(
+          new Error(options.timeoutMessage ?? `Plugin RPC timed out: ${pluginId}.${message.type}`),
+        );
+      }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
       loaded.pending.set(requestId, { resolve, reject, timeout });
       void send(child, message).catch((error) => {
         clearTimeout(timeout);
@@ -566,6 +614,7 @@ export class PluginRuntime {
         methods: new Set(),
         hooks: { events: [], before: [] },
         providers: [],
+        channels: [],
         child: null,
         outputCapture: null,
         pending: new Map(),
@@ -595,6 +644,8 @@ export class PluginRuntime {
       });
     let loaded: LoadedPlugin | null = null;
     let ready: Extract<PluginProcessMessage, { type: "ready" }>;
+    // A registration that follows ready can arrive before `loaded` exists; keep the latest.
+    let channelsBeforeLoaded: string[] | null = null;
     try {
       ready = await new Promise<Extract<PluginProcessMessage, { type: "ready" }>>(
         (resolve, reject) => {
@@ -640,6 +691,8 @@ export class PluginRuntime {
               fail(new Error(message.error));
             } else if (loaded) {
               this.handleChildMessage(loaded, message);
+            } else if (message.type === "channels.changed") {
+              channelsBeforeLoaded = message.channels;
             }
           });
           child.on("close", () => {
@@ -674,6 +727,7 @@ export class PluginRuntime {
       methods: new Set(ready.methods),
       hooks: ready.hooks ?? { events: [], before: [] },
       providers: ready.providers ?? [],
+      channels: channelsBeforeLoaded ?? ready.channels ?? [],
       child,
       outputCapture,
       pending,
@@ -684,7 +738,7 @@ export class PluginRuntime {
     };
     session.plugin = loaded;
     this.logger.info(
-      { pluginId, methods: ready.methods, providers: ready.providers },
+      { pluginId, methods: ready.methods, providers: ready.providers, channels: ready.channels },
       "Loaded plugin",
     );
     return loaded;
@@ -752,6 +806,11 @@ export class PluginRuntime {
   private handleChildMessage(loaded: LoadedPlugin, message: PluginProcessMessage): void {
     if (message.type === "hooks.changed") {
       loaded.hooks = message.hooks;
+      return;
+    }
+    if (message.type === "channels.changed") {
+      loaded.channels = message.channels;
+      if (this.plugins.get(loaded.id) === loaded) this.reportChannelConflicts(loaded);
       return;
     }
     if (message.type === "settings.changed") {

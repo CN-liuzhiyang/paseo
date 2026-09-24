@@ -27,6 +27,8 @@ export interface ScheduleUpdateOptions extends ScheduleCommandOptions {
   noMaxRuns?: boolean;
   expiresIn?: string;
   noExpiresIn?: boolean;
+  /** Commander sets this to false for --no-deliver. */
+  deliver?: string | false;
 }
 
 export async function runUpdateCommand(
@@ -49,6 +51,7 @@ export async function runUpdateCommand(
     expiresIn: options.expiresIn,
     clearMaxRuns: options.noMaxRuns,
     clearExpires: options.noExpiresIn,
+    deliver: options.deliver,
   });
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {

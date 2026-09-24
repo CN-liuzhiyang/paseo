@@ -795,6 +795,8 @@ export interface CreateScheduleOptions {
   maxRuns?: number;
   expiresAt?: string;
   runOnCreate?: boolean;
+  /** Send each run's result to this plugin channel. */
+  delivery?: { channel: string; to: string };
   requestId?: string;
 }
 export interface InspectScheduleOptions {
@@ -822,6 +824,8 @@ export interface UpdateScheduleOptions {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  /** `null` clears the delivery target. */
+  delivery?: { channel: string; to: string } | null;
   requestId?: string;
 }
 export interface RenameBranchInput {
@@ -5862,6 +5866,7 @@ export class DaemonClient {
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
         ...(typeof options.runOnCreate === "boolean" ? { runOnCreate: options.runOnCreate } : {}),
+        ...(options.delivery ? { delivery: options.delivery } : {}),
       },
       responseType: "schedule/create/response",
     });
@@ -5955,6 +5960,7 @@ export class DaemonClient {
         ...(options.newAgentConfig !== undefined ? { newAgentConfig: options.newAgentConfig } : {}),
         ...(options.maxRuns !== undefined ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt !== undefined ? { expiresAt: options.expiresAt } : {}),
+        ...(options.delivery !== undefined ? { delivery: options.delivery } : {}),
       },
       responseType: "schedule/update/response",
     });

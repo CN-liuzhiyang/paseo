@@ -97,6 +97,20 @@ paseo schedule update <id> --every 10m --max-runs 6
 paseo schedule delete <id>
 ```
 
+## Deliver results
+
+A plugin can register an outbound channel, such as a chat integration. Point a schedule at it with `--deliver <channel:to>` and each run's result is posted there, failures included:
+
+```bash
+paseo schedule create --cron "0 9 * * 1-5" --name standup \
+  --deliver chat:general \
+  "Summarize yesterday's merged PRs."
+paseo schedule update <id> --deliver chat:releases
+paseo schedule update <id> --no-deliver
+```
+
+The text before the first `:` is the channel ID; the rest is an address only that channel interprets. The channel is not checked when you create the schedule. `schedule inspect` shows the target and `schedule logs` shows each run's delivery status. A failed delivery is recorded on the run and does not change the run's own status; Paseo does not retry it.
+
 ## Cadence
 
 Use `--cron "<expr>"` for a 5-field cron expression. For common cron-compatible cadences, `--every <duration>` accepts presets such as `5m` or `1h` and compiles them to cron. It does not create a rolling interval anchored to creation time.

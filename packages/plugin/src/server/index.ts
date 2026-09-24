@@ -1,4 +1,8 @@
 export type {
+  ChannelDelivery,
+  ChannelDeliveryScheduleSource,
+  ChannelDeliverySource,
+  ChannelRegistration,
   PluginHandlerContext,
   PluginServerContext,
   PluginServerContribution,

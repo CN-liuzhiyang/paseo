@@ -153,6 +153,8 @@ Both use the same cron engine, but they have deliberately different interfaces.
 
 MCP heartbeats are ephemeral: create or delete them. To change one, delete it and create a replacement. Pause, resume, update, inspect, logs, and run-once apply to new-agent schedules only.
 
+`create_schedule` and `update_schedule` accept `delivery: { channel, to }` to send each run's result, failures included, to an outbound channel registered by a [plugin](/docs/plugins/reference#outbound-channels). `update_schedule` clears it with `delivery: null`. Each run records its delivery status.
+
 ### Agent profiles
 
 | Tool            | Function                                                                                                                           |

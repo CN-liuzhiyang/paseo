@@ -42,6 +42,21 @@ export const ScheduleTargetSchema = z.discriminatedUnion("type", [
 ]);
 export type ScheduleTarget = z.infer<typeof ScheduleTargetSchema>;
 
+// Where a schedule sends each run's result. `channel` is an outbound channel id registered by a
+// plugin; `to` is an address only that channel interprets.
+export const ScheduleDeliverySchema = z.object({
+  channel: z.string().trim().min(1),
+  to: z.string().trim().min(1),
+});
+export type ScheduleDelivery = z.infer<typeof ScheduleDeliverySchema>;
+
+export const ScheduleRunDeliverySchema = z.object({
+  status: z.enum(["delivered", "failed"]),
+  at: z.string(),
+  error: z.string().optional(),
+});
+export type ScheduleRunDelivery = z.infer<typeof ScheduleRunDeliverySchema>;
+
 export const ScheduleRunSchema = z.object({
   id: z.string(),
   scheduledFor: z.string(),
@@ -52,6 +67,7 @@ export const ScheduleRunSchema = z.object({
   workspaceId: z.string().nullable().optional(),
   output: z.string().nullable(),
   error: z.string().nullable(),
+  delivery: ScheduleRunDeliverySchema.optional(),
 });
 export type ScheduleRun = z.infer<typeof ScheduleRunSchema>;
 
@@ -69,6 +85,7 @@ export const StoredScheduleSchema = z.object({
   pausedAt: z.string().nullable(),
   expiresAt: z.string().nullable(),
   maxRuns: z.number().int().positive().nullable(),
+  delivery: ScheduleDeliverySchema.optional(),
   runs: z.array(ScheduleRunSchema),
 });
 export type StoredSchedule = z.infer<typeof StoredScheduleSchema>;
@@ -86,6 +103,7 @@ export interface CreateScheduleInput {
   maxRuns?: number | null;
   expiresAt?: string | null;
   runOnCreate?: boolean | null;
+  delivery?: ScheduleDelivery | null;
 }
 
 export interface UpdateScheduleNewAgentConfig {
@@ -106,6 +124,8 @@ export interface UpdateScheduleInput {
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
+  /** `null` clears the delivery target. */
+  delivery?: ScheduleDelivery | null;
 }
 
 export interface ScheduleExecutionResult {
