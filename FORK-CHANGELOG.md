@@ -9,6 +9,30 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.2.0 - 2026-09-30
+
+Carries upstream v0.10.2, up from v0.9.1. The full upstream notes are in
+[CHANGELOG.md](CHANGELOG.md) under 0.9.2 through 0.10.2.
+
+### Added
+
+- OpenCode v2 sessions work in Paseo; the installed OpenCode version selects the matching integration automatically.
+- Pi task, subagent, and question extensions appear in the chat and Subagents track.
+- Claude Sonnet 5.5 is available with Claude Code 2.1.284 or newer. Claude sessions can also pass structured launch arguments, such as `--chrome`.
+- Add host and pairing flows accept a password for protected daemons, including remote connections.
+
+### Improved
+
+- Settings are organized into General, Sidebar, Chat, Terminal, Browser, and Open location pages.
+- Add Project searches large directories faster, and the daemon spends less time polling repositories its watcher cannot observe.
+
+### Fixed
+
+- OpenCode v2 long turns, question answers, edit diffs, and context usage display.
+- Daemon memory growth after clients disconnect, and watcher stalls caused by ignored directories.
+- Workspaces on unavailable disks or network shares disappearing, and archived agent logs failing after their worktree is removed.
+- Codex rewind dropping a custom provider and Paseo tools, and Default or Read-only mode sending approval requests to Auto-review.
+
 ## 1.1.2 - 2026-09-24
 
 Carries upstream v0.9.1, the same base as 1.1.1.
