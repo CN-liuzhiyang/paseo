@@ -49,9 +49,24 @@ function assertClean() {
 }
 
 function candidates() {
-  // Release tags only: the fork tracks releases, not upstream's main tip, so a
-  // sync lands on a base upstream considered shippable.
-  const tags = gitLines("tag", "--list", "v*", "--sort=creatordate", "--merged", "upstream/main");
+  // Include patch releases cut from the newest main release. Older side
+  // branches have tags that later main releases superseded; do not plan those.
+  const mainTags = gitLines(
+    "tag",
+    "--list",
+    "v*",
+    "--sort=creatordate",
+    "--merged",
+    "upstream/main",
+  );
+  const latestMainTag = mainTags.at(-1);
+  const patchTags = latestMainTag
+    ? gitLines("tag", "--list", "v*", "--sort=creatordate", "--contains", latestMainTag)
+    : [];
+  const eligible = new Set([...mainTags, ...patchTags]);
+  const tags = gitLines("tag", "--list", "v*", "--sort=creatordate").filter((tag) =>
+    eligible.has(tag),
+  );
   const have = new Set(gitLines("tag", "--list", "v*", "--merged", WORK));
   return tags.filter((tag) => !have.has(tag));
 }
@@ -117,9 +132,9 @@ Then, before opening the sync PR:
   git push -u origin ${branch}
   gh pr create --base ${WORK} --title "sync: upstream ${target}" --label sync
 
-Pushing ${MIRROR} is not optional. This script fast-forwarded it locally, but
-the delta check on the PR measures against origin/${MIRROR}: leave the remote
-behind and every commit this sync just absorbed is counted as fork delta.
+Pushing ${MIRROR} is not optional. This script fast-forwarded it locally;
+keep the remote mirror at the same upstream tip. The delta check uses the
+newest absorbed upstream release tag as its base.
 
 Never push ${WORK} directly. A bad sync blocks everyone.`);
 }

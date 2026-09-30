@@ -151,9 +151,10 @@ Once the PR is merged, `git pull` on `next` and cut a release from it —
 [releases.md](releases.md#cutting-one). Absorbing upstream and shipping it are
 one errand: nobody is running `next`.
 
-Push `main` too. The script fast-forwards it locally, but the `delta` check on
-the PR measures against `origin/main`, so a remote mirror left behind counts
-everything the sync just absorbed as fork delta and fails on budget.
+Push `main` too. The script fast-forwards it locally, and the remote mirror must
+track the same upstream tip. The `delta` check compares against the newest
+absorbed upstream release tag, including tags cut from release branches rather
+than `upstream/main`.
 
 Never push `next` directly for a sync. A bad sync blocks everyone, and the
 conflict resolutions are exactly what another pair of eyes is for.

@@ -55,7 +55,7 @@ const channels = new Map<string, ChannelRegistration>();
 let readySent = false;
 const providerConnections = new Map<
   string,
-  { connection: ProviderConnection; unsubscribe: () => void }
+  { connection: ProviderConnection; unsubscribe: () => void; closing?: Promise<void> }
 >();
 const pendingProviderConnections = new Map<string, { tombstoned: boolean }>();
 let cleanup: (() => void | Promise<void>) | null = null;
@@ -243,6 +243,7 @@ async function sendProviderInput(
   if (stopping) throw new Error("Plugin is stopping");
   const current = providerConnections.get(message.connectionId);
   if (!current) throw new Error(`Unknown provider connection: ${message.connectionId}`);
+  if (current.closing) throw new Error("Provider connection is closing");
   await current.connection.send(message.input);
   send({
     type: "provider.accepted",
@@ -251,13 +252,25 @@ async function sendProviderInput(
   });
 }
 
+// The connection stays registered until its close has reported, so shutdown
+// waits for a close already in flight instead of disconnecting underneath it.
 async function closeProviderConnection(connectionId: string): Promise<void> {
   const current = providerConnections.get(connectionId);
   if (!current) return;
-  providerConnections.delete(connectionId);
-  current.unsubscribe();
-  await current.connection.close();
-  send({ type: "provider.closed", connectionId });
+  if (current.closing) return current.closing;
+  const closing = (async () => {
+    current.unsubscribe();
+    try {
+      await current.connection.close();
+      send({ type: "provider.closed", connectionId });
+    } catch (error) {
+      send({ type: "provider.closed", connectionId, error: describeError(error) });
+    } finally {
+      providerConnections.delete(connectionId);
+    }
+  })();
+  current.closing = closing;
+  return closing;
 }
 
 function runtimeRequire(name: string): unknown {
@@ -442,13 +455,7 @@ process.on("message", (rawMessage: unknown) => {
     return;
   }
   if (message.type === "provider.close") {
-    void closeProviderConnection(message.connectionId).catch((error) => {
-      send({
-        type: "provider.closed",
-        connectionId: message.connectionId,
-        error: describeError(error),
-      });
-    });
+    void closeProviderConnection(message.connectionId);
     return;
   }
   if (message.type === "paseo_frame" || message.type === "paseo_close") return;
