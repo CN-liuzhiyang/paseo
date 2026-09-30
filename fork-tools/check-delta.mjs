@@ -40,6 +40,15 @@ const isForkOwn = (file) => FORK_OWN.some((pattern) => pattern.test(file));
 const git = (...args) =>
   execFileSync("git", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 
+// Stable patch releases may be cut from a release branch and never become
+// ancestors of upstream/main. Use the newest absorbed release as the delta
+// base so its patches do not count as fork changes. CI fetches upstream tags.
+const releaseBase = git("tag", "--list", "v*", "--sort=-creatordate", "--merged", WORK)
+  .trim()
+  .split("\n")
+  .find(Boolean);
+const base = releaseBase ?? MIRROR;
+
 function patterns() {
   const file = new URL("./forbidden-patterns.txt", import.meta.url);
   const committed = existsSync(file) ? readFileSync(file, "utf8") : "";
@@ -53,7 +62,7 @@ function patterns() {
 }
 
 function addedLines() {
-  const diff = git("diff", "--unified=0", `${MIRROR}...${WORK}`);
+  const diff = git("diff", "--unified=0", `${base}...${WORK}`);
   const results = [];
   let file = "";
   for (const line of diff.split("\n")) {
@@ -98,7 +107,7 @@ if (hits.length > 0) {
 }
 
 // --- Budget ---------------------------------------------------------------
-const stat = git("diff", "--numstat", `${MIRROR}...${WORK}`).split("\n").filter(Boolean);
+const stat = git("diff", "--numstat", `${base}...${WORK}`).split("\n").filter(Boolean);
 let files = 0;
 let lines = 0;
 let ownFiles = 0;
@@ -114,6 +123,7 @@ for (const row of stat) {
 }
 
 const over = files > MAX_FILES || lines > MAX_LINES;
+console.log(`Base:      ${base}`);
 console.log(
   `Budget:    ${files}/${MAX_FILES} files, ${lines}/${MAX_LINES} lines${over ? "  OVER" : ""}` +
     (ownFiles > 0 ? `  (+${ownFiles} fork-own, not counted)` : ""),
@@ -124,7 +134,7 @@ if (over) {
   console.error(`
 The delta outgrew its budget. Before raising the limit, check each patch:
 
-  git log --oneline ${MIRROR}..${WORK}
+  git log --oneline ${base}..${WORK}
 
   - Landed upstream already?       revert the local copy
   - Could it be a plugin?          move it, shrink core to the extension point

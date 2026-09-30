@@ -43,6 +43,9 @@ jobs:
       - name: Fetch mirror
         run: git fetch origin main:refs/remotes/origin/main --force
 
+      - name: Fetch upstream release tags
+        run: git fetch https://github.com/getpaseo/paseo.git 'refs/tags/v*:refs/tags/v*'
+
       - name: Red line and delta budget
         env:
           FORK_GUARD_MIRROR: origin/main
