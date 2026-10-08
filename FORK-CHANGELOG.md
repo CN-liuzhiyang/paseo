@@ -9,6 +9,31 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.3.0 - 2026-10-08
+
+Carries upstream v0.11.1, up from v0.10.2. The full upstream notes are in
+[CHANGELOG.md](CHANGELOG.md) under 0.10.3 through 0.11.1.
+
+### Added
+
+- Usage, opened from the sidebar footer, shows each subscription account's quota windows, with an opt-in summary of the windows you pin.
+- Muse Code and Antigravity are available as providers.
+- Claude Haiku 5.5 is available with Claude Code 2.1.293 or newer.
+- A Content width setting limits the width of chat and Markdown files on wide screens, and Vue files are syntax highlighted.
+- Plugins can add screens and sidebar header or footer items, usage sources, and run CLIs through `spawnProcess()` and `execCommand()`.
+
+### Changed
+
+- `paseo plugin add owner/slug` installs from the plugin registry. Use `github:owner/repo` to install straight from GitHub and `./path` for a local directory.
+- Codex Fast is now a Speed menu listing the speeds each model offers, and Explorer tabs work like workspace tabs.
+- Relative timestamps in agent, schedule, and Import session rows keep advancing while on screen.
+
+### Fixed
+
+- Claude tool calls that run longer than 30 seconds showing up as subagents, and subagents that finish while the app is disconnected staying "working".
+- Claude agent history showing "No activity to display" after a daemon restart when its transcript is in another project folder.
+- Rewinding a legacy Codex chat failing with `unknown variant thread/rollback` on Codex 0.156 and newer.
+
 ## 1.2.0 - 2026-09-30
 
 Carries upstream v0.10.2, up from v0.9.1. The full upstream notes are in
