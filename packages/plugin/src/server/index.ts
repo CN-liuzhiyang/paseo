@@ -1,4 +1,11 @@
 export type {
+  UsageSourceRegistration,
+  UsageReport,
+  UsageWindow,
+  UsageBalance,
+  UsageDetail,
+} from "./usage.js";
+export type {
   ChannelDelivery,
   ChannelDeliveryScheduleSource,
   ChannelDestination,
@@ -20,3 +27,5 @@ export type {
   PluginBeforeRequests,
   PluginLifecycleRegistration,
 } from "./lifecycle.js";
+
+export { spawnProcess, execCommand, terminateProcess } from "./process.js";

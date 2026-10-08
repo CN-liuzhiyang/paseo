@@ -123,9 +123,14 @@ const EXPECTED_CLAUDE_MODELS = [
     descriptionFragment: "Most capable",
   },
   {
+    id: "claude-haiku-5-5",
+    model: "Haiku 5.5",
+    descriptionFragment: "Fastest",
+  },
+  {
     id: "claude-haiku-4-5",
     model: "Haiku 4.5",
-    descriptionFragment: "Fastest",
+    descriptionFragment: "Previous release",
   },
 ] as const;
 
@@ -437,6 +442,10 @@ try {
     assert(
       claudeModelsFromJson.some((m) => m.id === "claude-sonnet-5-5"),
       "captured --json output should include the current Claude everyday model id",
+    );
+    assert(
+      claudeModelsFromJson.some((m) => m.id === "claude-haiku-5-5"),
+      "captured --json output should include the current Claude quick-answer model id",
     );
     console.log("✓ provider models --quiet outputs model IDs only\n");
   }
