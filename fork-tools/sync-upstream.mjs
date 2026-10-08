@@ -8,9 +8,9 @@
 //   node fork-tools/sync-upstream.mjs
 //   node fork-tools/sync-upstream.mjs --to v0.8.0
 //
-// Sync to the nearest release first. Conflicts are cheaper in two small steps
-// than one large one, and rerere replays the first step's resolutions into the
-// second.
+// Default to the newest release and one PR. Step through releases only when the
+// conflict counts jump between neighbours; rerere then replays each step's
+// resolutions into the next.
 
 import { execFileSync } from "node:child_process";
 
@@ -91,7 +91,8 @@ function plan() {
   }
 
   console.log(
-    `\nSync to the oldest one first:\n  node fork-tools/sync-upstream.mjs --to ${ahead[0]}`,
+    `\nSync to the newest and open one PR:\n  node fork-tools/sync-upstream.mjs --to ${ahead.at(-1)}` +
+      `\nStep through the releases instead only if the counts above jump between neighbours.`,
   );
 }
 

@@ -122,30 +122,38 @@ node fork-tools/sync-upstream.mjs
 Reports which upstream releases `next` has not absorbed and what each one costs
 in conflicts. It mutates nothing.
 
-Take the oldest first. Conflicts are cheaper in steps, and `rerere` replays
-each step's resolutions into the next. At the time of writing, stepping through
-`v0.8.0-beta.1` (0 conflicts) and `v0.8.0` (1) costs less than jumping straight
-to `v0.9.0-beta.1` (6).
+Default: jump to the newest release and open one PR. Name the branch after the
+newest tag, since that is what lands.
 
 ```bash
-node fork-tools/sync-upstream.mjs --to v0.8.0-beta.1
+node fork-tools/sync-upstream.mjs --to v0.11.1
 # resolve, then:
 npm ci                     # only if package-lock.json moved, which it usually does
 npm run build:server && npm run typecheck && npm run lint && npm run format
 git checkout -- AGENTS.md packages/server/AGENTS.md   # Windows only; see README.md
 node fork-tools/check-delta.mjs
 git push origin main
-git push -u origin sync/v0.8.0-beta.1
-gh pr create --base next --title "sync: upstream v0.8.0-beta.1" --label sync
+git push -u origin sync/v0.11.1
+gh pr create --base next --title "sync: upstream v0.11.1" --label sync
 ```
 
 Skipping `npm ci` after the lockfile moves produces type errors that read like
 real ones and are not.
 
-When the plan lists several releases and every one of them costs zero
-conflicts, merge them onto a single branch and open one PR. Stepping exists to
-make conflicts cheaper, and there is nothing to make cheaper. Name the branch
-after the newest tag, since that is what lands.
+Step through the releases, one PR each, only when the plan shows the conflict
+count jumping between neighbours. Stepping exists to make a big conflict set
+cheaper, and `rerere` replays each step's resolutions into the next. At the
+time of writing, `v0.8.0-beta.1` (0 conflicts) then `v0.8.0` (1) costs less
+than jumping straight to `v0.9.0-beta.1` (6). A flat curve, such as 25, 28, 31,
+34 for `v0.11.0-beta.1` through `v0.11.1`, gains nothing from stepping and
+costs a PR and a CI run per step.
+
+Most of a large count is mechanical: every `package.json` `version` line and
+`package-lock.json` conflict on each upstream release, and a base far behind
+inflates the rest. A tag cut from an upstream release branch is not an ancestor
+of `upstream/main`, so merging it leaves the common ancestor at the previous
+main-line release (`v0.10.2` left it at `v0.10.0` and cost 34 conflicts). A
+patch tag on `upstream/main` keeps the base close.
 
 Once the PR is merged, `git pull` on `next` and cut a release from it —
 [releases.md](releases.md#cutting-one). Absorbing upstream and shipping it are
