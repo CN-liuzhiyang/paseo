@@ -1,4 +1,5 @@
-# Fork-only release, Windows for now.
+# Fork-only release: the Windows desktop app, plus the CLI packages for
+# headless installs. No macOS or Linux desktop builds yet.
 #
 # Upstream's desktop-release.yml stays untouched and never fires here: it
 # triggers on v*/desktop-v*, and fork tags are fork-v*. That also leaves it
@@ -47,6 +48,8 @@ jobs:
     permissions:
       contents: write
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - uses: actions/checkout@v4
@@ -55,6 +58,7 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
 
       - name: Resolve the version from the tag
+        id: version
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +74,7 @@ jobs:
             exit 1
           fi
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -100,22 +105,12 @@ jobs:
               --draft
           fi
 
+      # Every workspace, not just packages/desktop. Upstream avoids this by
+      # committing a monorepo-wide bump before releasing; the script says why
+      # stamping one is not enough.
       - name: Stamp the version across every workspace
         shell: bash
-        run: |
-          set -euo pipefail
-          # The installer name and the updater comparison come from
-          # packages/desktop, but the About screen reads packages/app and
-          # the daemon reports packages/server. Stamping only one leaves
-          # the app claiming upstream's version forever. Upstream avoids
-          # this by committing a monorepo-wide bump before releasing.
-          node -e '
-            const fs = require("node:fs");
-            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
-            pkg.version = process.env.RELEASE_VERSION;
-            fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
-          '
-          node scripts/sync-workspace-versions.mjs
+        run: node fork-tools/stamp-version.mjs "$RELEASE_VERSION"
 
       - name: Build the Windows desktop app
         shell: bash
@@ -199,3 +194,71 @@ jobs:
           path: ${{ runner.temp }}/desktop-smoke
           if-no-files-found: ignore
           retention-days: 7
+
+  # Headless installs. The seven packages `npm install -g @getpaseo/cli` pulls
+  # from the registry, built the way upstream publishes them and attached to the
+  # same release instead, so a server can run this fork without anything on npm.
+  # fork-tools/install-headless.sh installs them; see localdocs/releases.md.
+  #
+  # Runs after the desktop job so the release already exists, and on Linux
+  # because the server package's prepack spawns npm with shell:false, which
+  # fails on Windows.
+  cli:
+    needs: windows
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.windows.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: node scripts/npm-retry.mjs ci
+
+      - name: Stamp the version across every workspace
+        run: node fork-tools/stamp-version.mjs "$RELEASE_VERSION"
+
+      - name: Pack the CLI packages
+        env:
+          # The server package embeds the web app, so it gets the same
+          # update and changelog sources as the desktop build.
+          EXPO_PUBLIC_PASEO_SOURCE_REPO: ${{ github.repository }}
+          EXPO_PUBLIC_PASEO_CHANGELOG_URL: https://raw.githubusercontent.com/${{ github.repository }}/next/FORK-CHANGELOG.md
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cli-packs"
+          mkdir -p "$out"
+          # The packages and order of upstream's release:publish. npm pack runs
+          # each prepack, so these match what upstream puts on the registry.
+          for ws in highlight relay protocol client plugin server cli; do
+            npm pack --workspace="@getpaseo/$ws" --pack-destination "$out"
+          done
+          ls -l "$out"
+          count="$(find "$out" -name "getpaseo-*-$RELEASE_VERSION.tgz" | wc -l)"
+          if [[ "$count" -ne 7 ]]; then
+            echo "Expected 7 packages at $RELEASE_VERSION, found $count." >&2
+            exit 1
+          fi
+          echo "CLI_PACKS_DIR=$out" >> "$GITHUB_ENV"
+
+      - name: Upload the packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          release_lookup="$(node scripts/github-release.mjs --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG")"
+          node scripts/upload-release-assets.mjs \
+            "$release_lookup" \
+            "$CLI_PACKS_DIR" \
+            "$GITHUB_REPOSITORY"

@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.3.1 - 2026-10-14
+
+Carries upstream v0.11.1, the same base as 1.3.0.
+
+### Added
+
+- Each release now includes the CLI packages for running the daemon on a server without the desktop app. Install one with `fork-tools/install-headless.sh fork-v1.3.1`, and roll back by running it again with an older tag. The daemon and `paseo --version` report the fork version, not upstream's.
+
 ## 1.3.0 - 2026-10-08
 
 Carries upstream v0.11.1, up from v0.10.2. The full upstream notes are in

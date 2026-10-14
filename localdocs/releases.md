@@ -1,24 +1,24 @@
 # Releases
 
-This fork ships its own Windows desktop builds. Everything else — the relay,
-`app.paseo.sh`, the npm packages — stays upstream's.
+This fork ships its own Windows desktop builds and the CLI packages for
+headless installs. Everything else — the relay, `app.paseo.sh`, the npm
+registry — stays upstream's.
 
 ## What is ours, what is borrowed
 
 | Surface               | Source                          | How                                                  |
 | --------------------- | ------------------------------- | ---------------------------------------------------- |
 | Desktop app + updates | This repo's releases            | `.github/workflows/fork-release.yml`                 |
+| Headless CLI packages | This repo's releases            | same workflow; `fork-tools/install-headless.sh`      |
 | In-app changelog      | This repo's `FORK-CHANGELOG.md` | `EXPO_PUBLIC_PASEO_CHANGELOG_URL`                    |
 | Relay                 | Official `relay.paseo.sh`       | unchanged; it is E2E encrypted and sees no plaintext |
 | Pairing links         | Official `app.paseo.sh`         | unchanged                                            |
 | npm `@getpaseo/*`     | Official                        | we publish nothing                                   |
 
-We publish no npm packages. The desktop app bundles its own daemon, so a
-teammate who installs the app needs nothing from a registry. If headless
-installs ever matter, the cheapest option is an internal registry serving the
-same `@getpaseo/*` names — no source change, and the daemon's own
-`npm install -g @getpaseo/cli@latest` keeps working. The registry URL is
-internal, so it goes in a private plugin or internal runbook, never here.
+We publish nothing to npm. The desktop app bundles its own daemon, so a
+teammate who installs the app needs nothing from a registry. A headless host
+installs from the release instead — see
+[Headless installs](#headless-installs).
 
 ## Versions and tags
 
@@ -72,13 +72,15 @@ the `fork-v` prefix to keep upstream's five `v*` workflows from firing.
 So the upstream base lives beside the version, not inside it: every
 `FORK-CHANGELOG.md` entry names it.
 
-Nothing is committed to cut a release. The workflow writes the tag's version
-into the root `package.json` and runs `scripts/sync-workspace-versions.mjs`,
-so no `package.json` in this repo ever diverges from upstream's version
-fields. Stamping only `packages/desktop` is not enough: the installer name
-and the updater comparison come from there, but the About screen reads
+Nothing is committed to cut a release. Both release jobs run
+`fork-tools/stamp-version.mjs`, which writes the tag's version into the root
+`package.json` and runs upstream's `scripts/sync-workspace-versions.mjs`, so
+no `package.json` in this repo ever diverges from upstream's version fields.
+Stamping only `packages/desktop` is not enough: the installer name and the
+updater comparison come from there, but the About screen reads
 `packages/app/package.json` at bundle time and the daemon reports
-`packages/server`. fork-v1.0.0 shipped as 1.0.0 and said 0.9.0-beta.2.
+`packages/server`. fork-v1.0.0 shipped as 1.0.0 and said 0.9.0-beta.2, and a
+headless daemon packed by hand without stamping reported upstream's 0.9.1.
 
 ## Cutting one
 
@@ -135,9 +137,42 @@ uploads.github.com returns 500 on installer-sized assets, the manifest
 validation, and the rollout stamp. Fork-specific values belong in `-c.`
 overrides and env vars; logic belongs in upstream's scripts.
 
+## Headless installs
+
+A server with no desktop app runs the daemon from `npm install -g`. The
+`cli` job in `fork-release.yml` packs the seven packages that command pulls —
+highlight, relay, protocol, client, plugin, server, cli, in upstream's
+`release:publish` order and with each package's own prepack — and attaches them
+to the release next to the installers. It runs on Linux because the server
+package's prepack spawns `npm` with `shell:false`, which fails on Windows.
+
+On the host:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/CN-liuzhiyang/paseo/fork-v1.3.1/fork-tools/install-headless.sh
+bash install-headless.sh fork-v1.3.1
+# then restart the daemon however the host runs it
+```
+
+The script keeps what it downloads, so rolling back is running it with the
+older tag. All seven go into one `npm install -g`; installed together they
+resolve each other, which is what keeps the registry's upstream builds out.
+
+**Do not press "Update daemon" in the app for a host installed this way.** The
+app offers it whenever its version differs from the daemon's and the daemon is
+an npm global install, and the daemon then runs
+`npm install -g @getpaseo/cli@latest` — upstream's build from the registry,
+which drops every fork extension point and the plugins that depend on them. The
+button hides while the app and daemon versions match, so it reappears as soon as
+either side moves. An internal registry serving the same `@getpaseo/*` names
+would make the button install the fork instead; until one exists, guard the host
+itself.
+
+Releases before fork-v1.3.1 carry no CLI packages.
+
 ## What a fork tag does not do
 
-No npm publish, no macOS or Linux build. Rollout staging is wired up but
+No npm publish, no macOS or Linux desktop build. Rollout staging is wired up but
 defaults to 0 hours, which admits everyone at once; raise `rollout_hours` on a
 dispatch run to stage one. macOS is not a matter of adding a job: electron-updater verifies the code signature, so
 auto-update there needs an Apple Developer certificate. Windows auto-updates
