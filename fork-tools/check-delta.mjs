@@ -20,11 +20,14 @@ import { readFileSync, existsSync } from "node:fs";
 const MIRROR = process.env.FORK_GUARD_MIRROR ?? "main";
 const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 
-// Raised from 40/1000 on 2026-09-24 for two extension points, server.paseo and schedule
-// delivery with outbound channels, which are meant for upstream but not yet submitted: upstream
-// asks for a Discussions thread first. Lower it again as they land upstream.
-const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 90);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 4000);
+// Raised twice. From 40/1000 to 90/4000 on 2026-09-24 for two extension points, server.paseo and
+// schedule delivery with outbound channels, which are meant for upstream but not yet submitted:
+// upstream asks for a Discussions thread first. Then from 90/4000 to 130/7500 on 2026-10-15 for
+// running a schedule in an existing workspace (upstream Discussion #4729, submitted upstream as a
+// PR). When upstream takes that PR, revert the local copy and take the budget back down; do the
+// same for the other two as they land.
+const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 130);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 7500);
 
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are
