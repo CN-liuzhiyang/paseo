@@ -1362,6 +1362,10 @@ export async function createPaseoDaemon(
     archiveWorkspace: archiveScheduleWorkspaceExternal,
     deliverToChannel: (channelId, delivery) => pluginRuntime.deliverToChannel(channelId, delivery),
     listChannels: () => pluginRuntime.listChannels(),
+    getWorkspace: (workspaceId) => workspaceRegistry.get(workspaceId),
+    archiveAgent: async (agentId) => {
+      await archiveAgentCommand({ agentManager, agentStorage, logger }, agentId);
+    },
   });
   await scheduleService.start();
   agentManager.setAgentArchivedCallback(async (agentId) => {
