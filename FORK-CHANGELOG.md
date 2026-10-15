@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.3.2 - 2026-10-16
+
+Carries upstream v0.11.1, the same base as 1.3.1.
+
+### Added
+
+- A schedule can run in one workspace you choose instead of creating a new workspace for every run. Pick it in the schedule form's Workspace field, or pass `--workspace <id>` to `paseo schedule create` and `paseo schedule update`. Each run starts a fresh agent in that workspace, and the workspace is never archived by the schedule; Archive on finish archives only that run's agent. Open the workspace from the schedule row's menu. This is also proposed upstream (getpaseo/paseo Discussion #4729).
+
 ## 1.3.1 - 2026-10-14
 
 Carries upstream v0.11.1, the same base as 1.3.0.
