@@ -96,17 +96,17 @@ export function buildScheduleWorkspaceIndex(
 
 /**
  * Whether a workspace missing from the targets is really gone: the host's workspaces have
- * loaded and the host shows projects. Before that, absence is a cold cache or an offline
- * host. The schedules list and the form both ask this, so they never disagree.
+ * loaded and the host is online. An offline host is left out of the targets and its loaded flag
+ * is not cleared on disconnect, so absence then says nothing. Once loaded, an empty list is a
+ * real answer: a host's projects and workspaces are committed from one snapshot, so a host with
+ * no projects at all is not a cold cache. The schedules list and the form both ask this, so they
+ * never disagree.
  */
 export function canJudgeWorkspaceMissing(input: {
-  targets: readonly ScheduleProjectTarget[];
-  serverId: string | null;
   workspacesLoaded: boolean;
+  hostOnline: boolean;
 }): boolean {
-  return (
-    input.workspacesLoaded && input.targets.some((target) => target.serverId === input.serverId)
-  );
+  return input.workspacesLoaded && input.hostOnline;
 }
 
 function projectNameKey(serverId: string, cwd: string): string {

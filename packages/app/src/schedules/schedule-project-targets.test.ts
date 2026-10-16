@@ -116,15 +116,24 @@ describe("schedule project workspaces", () => {
     expect(index.has("host-1:wks_closing")).toBe(false);
   });
 
-  it("only calls a workspace missing once the host's workspaces loaded and its projects show", () => {
-    const targets = buildScheduleProjectTargets(projects);
-    const judge = (serverId: string, workspacesLoaded: boolean) =>
-      canJudgeWorkspaceMissing({ targets, serverId, workspacesLoaded });
+  it("calls a workspace missing once the host is online and its workspaces loaded", () => {
+    expect(canJudgeWorkspaceMissing({ workspacesLoaded: true, hostOnline: true })).toBe(true);
+  });
 
-    expect(judge("host-1", true)).toBe(true);
-    expect(judge("host-1", false)).toBe(false);
-    // An offline host has no targets: its workspaces are unknown, not gone.
-    expect(judge("host-offline", true)).toBe(false);
+  it("calls a workspace missing on an online host that has no projects at all", () => {
+    // The host's last project was removed: nothing is left in the targets, and that is the answer.
+    expect(buildScheduleProjectTargets([])).toEqual([]);
+    expect(canJudgeWorkspaceMissing({ workspacesLoaded: true, hostOnline: true })).toBe(true);
+  });
+
+  it("does not call a workspace missing on an offline host", () => {
+    // An offline host has no targets and keeps its loaded flag: its workspaces are unknown, not gone.
+    expect(canJudgeWorkspaceMissing({ workspacesLoaded: true, hostOnline: false })).toBe(false);
+  });
+
+  it("does not call a workspace missing before the host's workspaces loaded", () => {
+    expect(canJudgeWorkspaceMissing({ workspacesLoaded: false, hostOnline: true })).toBe(false);
+    expect(canJudgeWorkspaceMissing({ workspacesLoaded: false, hostOnline: false })).toBe(false);
   });
 });
 
