@@ -50,6 +50,8 @@ export interface ScheduleFormHost {
   supportsWorkspaceTarget?: boolean;
   /** The host's workspace list has loaded, so a missing workspace is really gone. */
   workspacesLoaded?: boolean;
+  /** The host's connection is online. An offline host keeps a stale list, so nothing is gone. */
+  isOnline?: boolean;
 }
 
 export interface ScheduleFormSnapshot {
@@ -621,9 +623,8 @@ function resolveWorkspaceView(input: {
     selectedWorkspaceId !== null &&
     !hostWorkspace &&
     canJudgeWorkspaceMissing({
-      targets: input.targets,
-      serverId: state.selectedServerId,
       workspacesLoaded: host?.workspacesLoaded === true,
+      hostOnline: host?.isOnline === true,
     });
   // A schedule that has already ended cannot be revived by editing, so a missing workspace is
   // not something to fix: like an unavailable agent it is only labeled, never an error, and

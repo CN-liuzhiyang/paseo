@@ -1,7 +1,12 @@
 import type { ScheduleSummary } from "@getpaseo/protocol/schedule/types";
 import { describe, expect, it } from "vitest";
 import { resolveSchedule, scheduleBucket, type ScheduleTargetAgent } from "./schedule-derivation";
-import type { ScheduleWorkspaceRef } from "./schedule-project-targets";
+import {
+  buildScheduleProjectTargets,
+  buildScheduleWorkspaceIndex,
+  canJudgeWorkspaceMissing,
+  type ScheduleWorkspaceRef,
+} from "./schedule-project-targets";
 
 const NOW = Date.parse("2026-07-02T00:00:00.000Z");
 const AGENT_ID = "00000000-0000-4000-8000-000000000000";
@@ -142,6 +147,37 @@ describe("resolveSchedule workspace target", () => {
     const schedule = makeWorkspaceSchedule();
     expect(resolve(schedule).state).toBe("targetGone");
     expect(resolve(schedule, { workspaces: REPORT_WORKSPACE }).state).toBe("active");
+  });
+
+  it("shows target gone on an online host with no projects, but not on an offline one", () => {
+    // Fed the way the Schedules screen feeds it: the host has no projects, so the workspace index
+    // is empty, and whether that counts as gone depends on the host being online and loaded.
+    const emptyIndex = buildScheduleWorkspaceIndex(buildScheduleProjectTargets([]));
+    const resolveOnHost = (input: { workspacesLoaded: boolean; hostOnline: boolean }) =>
+      resolveSchedule({
+        schedule: makeWorkspaceSchedule(),
+        serverId: "host-1",
+        now: NOW,
+        agentsByKey: new Map(),
+        projectNameByCwd: new Map(),
+        agentDataLoaded: true,
+        workspacesByKey: emptyIndex,
+        workspaceDataLoaded: canJudgeWorkspaceMissing(input),
+      });
+
+    expect(resolveOnHost({ workspacesLoaded: true, hostOnline: true })).toMatchObject({
+      state: "targetGone",
+      workspaceUnavailable: true,
+      target: { label: "Workspace unavailable" },
+    });
+    expect(resolveOnHost({ workspacesLoaded: true, hostOnline: false })).toMatchObject({
+      state: "active",
+      workspaceUnavailable: false,
+    });
+    expect(resolveOnHost({ workspacesLoaded: false, hostOnline: true })).toMatchObject({
+      state: "active",
+      workspaceUnavailable: false,
+    });
   });
 
   it("reports an unavailable workspace whatever the badge says, and only once it is known gone", () => {

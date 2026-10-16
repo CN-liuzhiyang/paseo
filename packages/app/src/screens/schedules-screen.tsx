@@ -27,7 +27,11 @@ import {
   type AggregatedSchedule,
   type ScheduleHostError,
 } from "@/hooks/use-schedules";
-import { getHostRuntimeStore, useHosts } from "@/runtime/host-runtime";
+import {
+  getHostRuntimeStore,
+  useHostRuntimeConnectionStatuses,
+  useHosts,
+} from "@/runtime/host-runtime";
 import { useHydratedWorkspaceServerIds } from "@/stores/session-store-hooks";
 import {
   resolveSchedule,
@@ -129,6 +133,7 @@ function SchedulesScreenContent(): ReactElement {
   );
   const hostServerIds = useMemo(() => hosts.map((host) => host.serverId), [hosts]);
   const workspaceReadyHosts = useHydratedWorkspaceServerIds(hostServerIds);
+  const connectionStatuses = useHostRuntimeConnectionStatuses(hostServerIds);
 
   // Resolve every schedule's derived state and target line once, then partition
   // by the host and status filters. Sorted newest-first for a stable order
@@ -146,9 +151,8 @@ function SchedulesScreenContent(): ReactElement {
         agentDataLoaded: agentDirReadyHosts.has(schedule.serverId),
         workspacesByKey,
         workspaceDataLoaded: canJudgeWorkspaceMissing({
-          targets: projectTargets,
-          serverId: schedule.serverId,
           workspacesLoaded: workspaceReadyHosts.includes(schedule.serverId),
+          hostOnline: connectionStatuses.get(schedule.serverId) === "online",
         }),
       }),
     }));
@@ -158,8 +162,8 @@ function SchedulesScreenContent(): ReactElement {
     projectNameByCwd,
     agentDirReadyHosts,
     workspacesByKey,
-    projectTargets,
     workspaceReadyHosts,
+    connectionStatuses,
   ]);
 
   const visibleRows = useMemo<ScheduleRowView[]>(() => {
