@@ -39,6 +39,7 @@ Carries upstream v0.12.0, up from v0.11.1. The full upstream notes are in
 - A schedule never running again after one of its runs could not be recorded, and schedules sharing a cron minute running a slot twice.
 - Parent agents missing the finish notification when a child finished its first turn very quickly.
 - Changes showing wrong or empty diffs for renamed files, custom Git diff settings, and unusual filenames.
+- A schedule whose workspace was removed staying Active, with the edit form stuck on "Loading...", when its host has no projects left.
 
 ## 1.3.2 - 2026-10-16
 
