@@ -809,6 +809,7 @@ describe("schedule form workspace binding", () => {
       supportsWorkspaceMultiplicity: true,
       supportsWorkspaceTarget: true,
       workspacesLoaded: true,
+      isOnline: true,
     },
   ];
   const PROJECT_A_WORKSPACES: ScheduleProjectWorkspace[] = [
@@ -1036,12 +1037,59 @@ describe("schedule form workspace binding", () => {
     });
   });
 
-  it("does not call a bound workspace gone while the host shows no projects", () => {
+  it("calls a bound workspace gone on an online host that has no projects left", () => {
+    // The host's last project was removed, so there is nothing to list and the workspace is gone.
     const form = openBound("wks_feature", "/repo/a", WORKSPACE_HOSTS, []);
+    form.applyProviderSnapshot("host-a", providerSnapshot(HOST_A_MODELS));
+
+    expect(form.getState()).toMatchObject({
+      selectedWorkspaceDisplay: { label: "Workspace unavailable" },
+      workspaceError: "Choose another workspace",
+      canSubmit: false,
+    });
+  });
+
+  it("only labels the missing workspace of an ended schedule on a host with no projects", () => {
+    const form = openBound("wks_feature", "/repo/a", WORKSPACE_HOSTS, [], "completed");
+    form.applyProviderSnapshot("host-a", providerSnapshot(HOST_A_MODELS));
+
+    expect(form.getState()).toMatchObject({
+      selectedWorkspaceDisplay: { label: "Workspace unavailable" },
+      workspaceError: null,
+      submitWorkspaceId: undefined,
+      canSubmit: true,
+    });
+  });
+
+  it("does not call a bound workspace gone while the host is offline", () => {
+    // An offline host is left out of the targets and keeps its loaded flag: nothing is known.
+    const form = openBound(
+      "wks_feature",
+      "/repo/a",
+      [{ ...WORKSPACE_HOSTS[0]!, isOnline: false }],
+      [],
+    );
 
     expect(form.getState()).toMatchObject({
       workspaceError: null,
       selectedWorkspaceDisplay: { label: "Loading..." },
+    });
+  });
+
+  it("judges a bound workspace once the host comes online", () => {
+    const form = openBound(
+      "wks_feature",
+      "/repo/a",
+      [{ ...WORKSPACE_HOSTS[0]!, isOnline: false }],
+      [],
+    );
+    expect(form.getState().workspaceError).toBeNull();
+
+    form.applyHosts(WORKSPACE_HOSTS);
+
+    expect(form.getState()).toMatchObject({
+      selectedWorkspaceDisplay: { label: "Workspace unavailable" },
+      workspaceError: "Choose another workspace",
     });
   });
 

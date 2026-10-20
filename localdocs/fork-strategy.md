@@ -104,6 +104,9 @@ pre-push:
   jobs:
     - name: fork-delta
       run: node fork-tools/check-delta.mjs
+      # pr/* branches come off main, which has no fork-tools/.
+      skip:
+        - run: test ! -f fork-tools/check-delta.mjs
 ```
 
 ```bash

@@ -48,7 +48,7 @@ import { useScheduleMutations } from "@/hooks/use-schedule-mutations";
 import { useScheduleDeliverySupported } from "@/hooks/use-schedule-channels";
 import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { useProjects } from "@/hooks/use-projects";
-import { useHosts } from "@/runtime/host-runtime";
+import { useHostRuntimeConnectionStatuses, useHosts } from "@/runtime/host-runtime";
 import { useSessionStore } from "@/stores/session-store";
 import { buildScheduleProjectTargets } from "@/schedules/schedule-project-targets";
 import { useScheduleFormModel } from "@/schedules/use-schedule-form-model";
@@ -269,10 +269,20 @@ function OpenScheduleFormSheet({
   const controlSize: FieldControlSize = useIsCompactFormFactor() ? "md" : "sm";
   const { projects } = useProjects();
   const hostProfiles = useHosts();
-  const hosts = useStoreWithEqualityFn(
+  const hostServerIds = useMemo(() => hostProfiles.map((host) => host.serverId), [hostProfiles]);
+  const connectionStatuses = useHostRuntimeConnectionStatuses(hostServerIds);
+  const sessionHosts = useStoreWithEqualityFn(
     useSessionStore,
     useMemo(() => selectScheduleHosts(hostProfiles), [hostProfiles]),
     equal,
+  );
+  const hosts = useMemo(
+    () =>
+      sessionHosts.map((host) => ({
+        ...host,
+        isOnline: connectionStatuses.get(host.serverId) === "online",
+      })),
+    [connectionStatuses, sessionHosts],
   );
   const { preferences, updatePreferences } = useFormPreferences();
   const projectTargets = useMemo(() => buildScheduleProjectTargets(projects), [projects]);
