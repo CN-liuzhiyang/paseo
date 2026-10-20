@@ -15,6 +15,7 @@ export interface WorkspaceSummary {
   background?: boolean;
   /** Pull/merge request number backing this workspace, so a query can find it. */
   changeRequestNumber: number | null;
+  statusEnteredAt: Date | null;
 }
 
 export interface ProjectHostEntry {
@@ -164,6 +165,7 @@ function toWorkspaceSummary(workspace: WorkspaceDescriptor): WorkspaceSummary {
     ...(workspace.archivingAt ? { archivingAt: workspace.archivingAt } : {}),
     ...(workspace.background ? { background: true } : {}),
     changeRequestNumber: toChangeRequestNumber(workspace),
+    statusEnteredAt: workspace.statusEnteredAt,
   };
 }
 

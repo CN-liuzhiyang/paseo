@@ -74,6 +74,7 @@ function makeWorkspace(
     status: "done",
     currentBranch: "main",
     changeRequestNumber: null,
+    statusEnteredAt: null,
     ...overrides,
   };
 }
