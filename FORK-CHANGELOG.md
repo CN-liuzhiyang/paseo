@@ -9,6 +9,37 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.4.0 - 2026-10-20
+
+Carries upstream v0.12.0, up from v0.11.1. The full upstream notes are in
+[CHANGELOG.md](CHANGELOG.md) under 0.11.2 through 0.12.0.
+
+### Before upgrading
+
+- `paseo run --background` is deprecated in favor of `--no-wait`.
+- `paseo permit allow` and `deny` exit non-zero when the daemon does not confirm within 15 seconds.
+
+### Added
+
+- Background workspaces, hidden from the sidebar unless Show background is on. The schedule form's Workspace picker leaves them out.
+- A Send feedback button in the diff pane, so review comments reach an agent without opening its chat.
+- A fullscreen composer on phones, and messages one agent sends another carry the sender's name.
+- `paseo usage` shows account quotas, balances, and reset times from the CLI.
+
+### Changed
+
+- Messages one agent sends another through the CLI or MCP steer its running turn instead of interrupting it.
+- Replies on iOS and Android use a new Markdown renderer: selection crosses paragraphs, code blocks have a copy button, and wide tables scroll sideways.
+- Phone layouts use a floating header, with New agent and New terminal in the tab switcher.
+- Command Center ranks workspaces and agents by match and then recency.
+
+### Fixed
+
+- Plugin hosts, the CLI, and the desktop app growing to about 1 GB of memory after 30 to 75 minutes.
+- A schedule never running again after one of its runs could not be recorded, and schedules sharing a cron minute running a slot twice.
+- Parent agents missing the finish notification when a child finished its first turn very quickly.
+- Changes showing wrong or empty diffs for renamed files, custom Git diff settings, and unusual filenames.
+
 ## 1.3.2 - 2026-10-16
 
 Carries upstream v0.11.1, the same base as 1.3.1.
