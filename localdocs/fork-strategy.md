@@ -125,6 +125,13 @@ node fork-tools/sync-upstream.mjs
 Reports which upstream releases `next` has not absorbed and what each one costs
 in conflicts. It mutates nothing.
 
+Before merging, a person reads upstream's `CHANGELOG.md` for those releases and
+decides whether to take the release at all. The answer is all or nothing: we
+never cherry-pick features out of a release, because a partial sync breaks the
+property that `next` carries upstream release tags. If the answer is no, wait
+for the next release. If the person already named the target ("sync to
+v0.12.0"), that is the decision; go straight to the merge.
+
 Default: jump to the newest release and open one PR. Name the branch after the
 newest tag, since that is what lands.
 
