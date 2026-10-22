@@ -2,6 +2,7 @@ import { PluginHookHandlers } from "./lifecycle/index.js";
 import { evaluateBundle } from "./bundle-evaluator.js";
 import {
   ChannelDestinationsSchema,
+  ChannelMessageSchema,
   PluginProcessRequestSchema,
   type PluginChannelMetadata,
   type PluginProcessMessage,
@@ -10,10 +11,13 @@ import {
 import type { UsageSourceRegistration } from "@getpaseo/plugin/server/usage";
 import type { SettingsDefinition, PluginRpcContract } from "@getpaseo/plugin";
 import type {
+  ChannelMessage,
   ChannelRegistration,
   PluginHandlerContext,
   PluginServerContribution,
 } from "@getpaseo/plugin/server";
+import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ZodType } from "zod";
 import {
@@ -38,8 +42,16 @@ type ChannelRequest = Extract<
   { type: "channel.deliver" | "channel.destinations" }
 >;
 
-function isChannelRequest(message: PluginProcessRequest): message is ChannelRequest {
-  return message.type === "channel.deliver" || message.type === "channel.destinations";
+type ChannelResponse = Extract<PluginProcessRequest, { type: "channel.response" }>;
+
+function isChannelMessage(
+  message: PluginProcessRequest,
+): message is ChannelRequest | ChannelResponse {
+  return (
+    message.type === "channel.deliver" ||
+    message.type === "channel.destinations" ||
+    message.type === "channel.response"
+  );
 }
 
 export interface PluginWorkerChannel {
@@ -82,6 +94,11 @@ export function createPluginWorker(options: {
   const usageSources = new Map<string, UsageSourceRegistration>();
   const channels = new Map<string, ChannelRegistration>();
   let readySent = false;
+  // Calls this plugin made to the host, waiting on a `channel.response`.
+  const pendingHostCalls = new Map<
+    string,
+    { resolve: (output: unknown) => void; reject: (error: Error) => void }
+  >();
   const providerConnections = new Map<
     string,
     { connection: ProviderConnection; unsubscribe: () => void; closing?: Promise<void> }
@@ -197,6 +214,35 @@ export function createPluginWorker(options: {
     channels.set(id, { ...registration, id });
     // Registered after the entry returned, e.g. once settings loaded: tell the host.
     if (readySent) send({ type: "channels.changed", channels: channelMetadata() });
+  }
+
+  function callHost(
+    message: Extract<
+      PluginProcessMessage,
+      { type: "channel.deliver.request" | "channel.list.request" }
+    >,
+  ): Promise<unknown> {
+    if (stopping) return Promise.reject(new Error("Plugin is stopping"));
+    return new Promise((resolve, reject) => {
+      pendingHostCalls.set(message.requestId, { resolve, reject });
+      send(message);
+    });
+  }
+
+  async function deliver(channelId: string, message: ChannelMessage): Promise<void> {
+    // Validated here: a malformed message to the host is treated as a broken plugin and kills it.
+    const checked = ChannelMessageSchema.parse(message);
+    await callHost({
+      type: "channel.deliver.request",
+      requestId: randomUUID(),
+      channelId,
+      message: checked,
+    });
+  }
+
+  async function listChannels(): Promise<ScheduleChannel[]> {
+    const output = await callHost({ type: "channel.list.request", requestId: randomUUID() });
+    return output as ScheduleChannel[];
   }
 
   function requireChannel(channelId: string): { channel: ChannelRegistration; api: PaseoApi } {
@@ -354,6 +400,8 @@ export function createPluginWorker(options: {
       registerUsageSource,
       registerSettings,
       registerChannel,
+      deliver,
+      listChannels,
       on: hooks.on,
       before: hooks.before,
       paseo: api,
@@ -389,6 +437,8 @@ export function createPluginWorker(options: {
   async function shutdown(): Promise<void> {
     if (stopping) return;
     stopping = true;
+    for (const call of pendingHostCalls.values()) call.reject(new Error("Plugin is stopping"));
+    pendingHostCalls.clear();
     const releaseApi = paseo
       ?.dispose()
       .catch((error) => console.error("Plugin API cleanup failed", error));
@@ -426,7 +476,20 @@ export function createPluginWorker(options: {
     );
   }
 
-  function handleChannelRequest(message: ChannelRequest): void {
+  // A response arriving while stopping is dropped: shutdown already rejected every pending call.
+  function settleHostCall(message: ChannelResponse): void {
+    const call = pendingHostCalls.get(message.requestId);
+    if (!call) return;
+    pendingHostCalls.delete(message.requestId);
+    if (message.error !== undefined) call.reject(new Error(message.error));
+    else call.resolve(message.output);
+  }
+
+  function handleChannelMessage(message: ChannelRequest | ChannelResponse): void {
+    if (message.type === "channel.response") {
+      settleHostCall(message);
+      return;
+    }
     void answerChannelRequest(message).then(
       (output) => send({ type: "result", requestId: message.requestId, output }),
       (error) => send({ type: "error", requestId: message.requestId, error: describeError(error) }),
@@ -531,8 +594,8 @@ export function createPluginWorker(options: {
       handleUsageRequest(message);
       return;
     }
-    if (isChannelRequest(message)) {
-      handleChannelRequest(message);
+    if (isChannelMessage(message)) {
+      handleChannelMessage(message);
       return;
     }
     if (message.type === "provider.connect") {

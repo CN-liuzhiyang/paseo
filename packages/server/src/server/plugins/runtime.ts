@@ -541,6 +541,46 @@ export class PluginRuntime {
       .sort((left, right) => left.id.localeCompare(right.id));
   }
 
+  /**
+   * A plugin sending through, or listing, the channels of the running plugins. The sender is the
+   * process the request arrived from; the message carries no plugin ID to trust. Answered even
+   * while that plugin is still starting, since an entry may deliver before it reports ready.
+   */
+  private answerChannelCall(input: {
+    pluginId: string;
+    child: PluginChild;
+    message: Extract<
+      PluginProcessMessage,
+      { type: "channel.deliver.request" | "channel.list.request" }
+    >;
+  }): void {
+    const { pluginId, child, message } = input;
+    const run = async (): Promise<unknown> => {
+      if (message.type === "channel.list.request") return this.listChannels();
+      const { to, idempotencyKey, title, text, status } = message.message;
+      await this.deliverToChannel(message.channelId, {
+        to,
+        idempotencyKey,
+        status,
+        text,
+        agentId: null,
+        source: { kind: "plugin", pluginId, title },
+      });
+      return null;
+    };
+    void run()
+      .then(
+        (output) => send(child, { type: "channel.response", requestId: message.requestId, output }),
+        (error) =>
+          send(child, {
+            type: "channel.response",
+            requestId: message.requestId,
+            error: describeError(error),
+          }),
+      )
+      .catch(() => undefined);
+  }
+
   private async describeChannel(channelId: string): Promise<ScheduleChannel | null> {
     const owner = this.findChannelOwners(channelId)[0];
     if (!owner) return null;
@@ -832,6 +872,11 @@ export class PluginRuntime {
               resolve(message);
             } else if (message.type === "fatal") {
               fail(new Error(message.error));
+            } else if (
+              message.type === "channel.deliver.request" ||
+              message.type === "channel.list.request"
+            ) {
+              this.answerChannelCall({ pluginId, child, message });
             } else if (loaded) {
               this.handleChildMessage(loaded, message);
             } else if (message.type === "channels.changed") {

@@ -39,18 +39,24 @@ type DestinationsAnswer =
   | { kind: "error"; error: string }
   | { kind: "hang" };
 
-/** A stand-in plugin subprocess that advertises channels and answers `channel.destinations`. */
+/**
+ * A stand-in plugin subprocess that advertises channels and answers `channel.destinations`, and
+ * `channel.deliver` from `deliverAnswers` (a delivery with no entry succeeds).
+ */
 function createChannelChild(
   channels: PluginChannelMetadata[],
   answers: Record<string, DestinationsAnswer>,
+  deliverAnswers: Record<string, DestinationsAnswer> = {},
 ) {
   const listeners = new Map<string, Array<(message: never) => void>>();
   const emit = (event: string, message: unknown) => {
     for (const listener of listeners.get(event) ?? []) listener(message as never);
   };
   const requests: Array<{ type: string; channelId?: string }> = [];
+  const sent: Array<Record<string, unknown>> = [];
   return {
     requests,
+    sent,
     stdout: new PassThrough(),
     stderr: new PassThrough(),
     connected: true,
@@ -61,10 +67,27 @@ function createChannelChild(
     ) {
       callback?.(null);
       requests.push({ type: message.type, channelId: message.channelId });
+      sent.push(message);
       if (message.type === "initialize") {
         queueMicrotask(() =>
           emit("message", { type: "ready", methods: [], providers: [], channels }),
         );
+      }
+      if (message.type === "channel.deliver") {
+        const answer = deliverAnswers[message.channelId ?? ""] ?? { kind: "result", output: null };
+        if (answer.kind === "result") {
+          queueMicrotask(() =>
+            emit("message", {
+              type: "result",
+              requestId: message.requestId,
+              output: answer.output,
+            }),
+          );
+        } else if (answer.kind === "error") {
+          queueMicrotask(() =>
+            emit("message", { type: "error", requestId: message.requestId, error: answer.error }),
+          );
+        }
       }
       if (message.type === "channel.destinations") {
         const answer = answers[message.channelId ?? ""] ?? { kind: "result", output: [] };
@@ -244,6 +267,200 @@ describe("PluginRuntime channels", () => {
         destinations: [{ to: "x", label: "Somewhere" }],
       },
     ]);
+    await runtime.stopAll();
+  });
+});
+
+const MESSAGE = {
+  to: "room-1",
+  idempotencyKey: "reminder-7",
+  title: "Reminder",
+  text: "Ship the build",
+  status: "succeeded",
+} as const;
+
+function deliverRequest(requestId: string, channelId: string, message: object = MESSAGE) {
+  return { type: "channel.deliver.request", requestId, channelId, message };
+}
+
+/** The host's answers to one plugin's `channel.*.request` messages, in order. */
+function responses(child: ReturnType<typeof createChannelChild>) {
+  return child.sent.filter((message) => message.type === "channel.response");
+}
+
+async function settled(): Promise<void> {
+  await vi.waitFor(() => undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+describe("PluginRuntime: a plugin delivering through another plugin's channel", () => {
+  it("hands the owner a plugin-sourced delivery whose pluginId is the sender's", async () => {
+    const owner = createChannelChild([{ id: "chat" }], {});
+    const sender = createChannelChild([], {});
+    const runtime = createRuntime([owner, sender]);
+    await runtime.startPlugin("chat-plugin", await createPluginDirectory("chat-plugin"));
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    sender.emitMessage(deliverRequest("r1", "chat"));
+    await vi.waitFor(() => expect(responses(sender)).toHaveLength(1));
+
+    expect(owner.sent.find((message) => message.type === "channel.deliver")).toMatchObject({
+      channelId: "chat",
+      delivery: {
+        to: "room-1",
+        idempotencyKey: "reminder-7",
+        status: "succeeded",
+        text: "Ship the build",
+        agentId: null,
+        source: { kind: "plugin", pluginId: "controller", title: "Reminder" },
+      },
+    });
+    expect(responses(sender)).toEqual([
+      { type: "channel.response", requestId: "r1", output: null },
+    ]);
+    await runtime.stopAll();
+  });
+
+  it("does not let the sender name itself: a message carrying pluginId is a protocol violation", () => {
+    const message = { ...MESSAGE, pluginId: "someone-else" };
+    expect(
+      PluginProcessMessageSchema.safeParse(deliverRequest("r1", "chat", message)).success,
+    ).toBe(false);
+    expect(PluginProcessMessageSchema.safeParse(deliverRequest("r1", "chat")).success).toBe(true);
+  });
+
+  it("requires status", () => {
+    const { status: _status, ...withoutStatus } = MESSAGE;
+    expect(
+      PluginProcessMessageSchema.safeParse(deliverRequest("r1", "chat", withoutStatus)).success,
+    ).toBe(false);
+  });
+
+  it("answers a channel nobody provides with the same error a schedule gets", async () => {
+    const sender = createChannelChild([], {});
+    const runtime = createRuntime([sender]);
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    sender.emitMessage(deliverRequest("r1", "missing"));
+    await vi.waitFor(() => expect(responses(sender)).toHaveLength(1));
+
+    expect(responses(sender)).toEqual([
+      {
+        type: "channel.response",
+        requestId: "r1",
+        error: 'No running plugin provides channel "missing"',
+      },
+    ]);
+    await runtime.stopAll();
+  });
+
+  it("passes the channel's own error back untouched", async () => {
+    const owner = createChannelChild(
+      [{ id: "chat" }],
+      {},
+      { chat: { kind: "error", error: "vendor rejected the message" } },
+    );
+    const sender = createChannelChild([], {});
+    const runtime = createRuntime([owner, sender]);
+    await runtime.startPlugin("chat-plugin", await createPluginDirectory("chat-plugin"));
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    sender.emitMessage(deliverRequest("r1", "chat"));
+    await vi.waitFor(() => expect(responses(sender)).toHaveLength(1));
+
+    expect(responses(sender)).toEqual([
+      { type: "channel.response", requestId: "r1", error: "vendor rejected the message" },
+    ]);
+    await runtime.stopAll();
+  });
+
+  it("gives up on a channel that never answers after the 60s a schedule delivery gets", async () => {
+    const owner = createChannelChild([{ id: "chat" }], {}, { chat: { kind: "hang" } });
+    const sender = createChannelChild([], {});
+    const runtime = createRuntime([owner, sender]);
+    await runtime.startPlugin("chat-plugin", await createPluginDirectory("chat-plugin"));
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    vi.useFakeTimers();
+    sender.emitMessage(deliverRequest("r1", "chat"));
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(responses(sender)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    vi.useRealTimers();
+    await settled();
+
+    expect(responses(sender)).toEqual([
+      {
+        type: "channel.response",
+        requestId: "r1",
+        error: 'Channel "chat" (plugin chat-plugin) did not finish delivering within 60s',
+      },
+    ]);
+    await runtime.stopAll();
+  });
+
+  it("lets a plugin deliver to a channel it registered itself", async () => {
+    const both = createChannelChild([{ id: "loopback" }], {});
+    const runtime = createRuntime([both]);
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    both.emitMessage(deliverRequest("r1", "loopback"));
+    await vi.waitFor(() => expect(responses(both)).toHaveLength(1));
+
+    expect(both.sent.find((message) => message.type === "channel.deliver")).toMatchObject({
+      delivery: { source: { kind: "plugin", pluginId: "controller", title: "Reminder" } },
+    });
+    expect(responses(both)).toEqual([{ type: "channel.response", requestId: "r1", output: null }]);
+    await runtime.stopAll();
+  });
+
+  it("lists channels in the shape `paseo schedule channels` returns", async () => {
+    const owner = createChannelChild([{ id: "chat", label: "Chat" }], {
+      chat: { kind: "result", output: [{ to: "room-1", label: "Team room" }] },
+    });
+    const sender = createChannelChild([], {});
+    const runtime = createRuntime([owner, sender]);
+    await runtime.startPlugin("chat-plugin", await createPluginDirectory("chat-plugin"));
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    sender.emitMessage({ type: "channel.list.request", requestId: "r1" });
+    await vi.waitFor(() => expect(responses(sender)).toHaveLength(1));
+
+    const listed = await runtime.listChannels();
+    expect(responses(sender)).toEqual([
+      { type: "channel.response", requestId: "r1", output: listed },
+    ]);
+    expect(listed).toEqual([
+      {
+        id: "chat",
+        label: "Chat",
+        pluginId: "chat-plugin",
+        destinations: [{ to: "room-1", label: "Team room" }],
+      },
+    ]);
+    await runtime.stopAll();
+  });
+
+  it("answers a request that arrives before the sender reports ready", async () => {
+    const owner = createChannelChild([{ id: "chat" }], {});
+    const early = createChannelChild([], {});
+    // Mirrors an entry that calls server.deliver before its first `ready`.
+    const original = early.send.bind(early);
+    early.send = (message, callback) => {
+      if (message.type === "initialize") early.emitMessage(deliverRequest("early", "chat"));
+      return original(message, callback);
+    };
+    const runtime = createRuntime([owner, early]);
+    await runtime.startPlugin("chat-plugin", await createPluginDirectory("chat-plugin"));
+    await runtime.startPlugin("controller", await createPluginDirectory("controller"));
+
+    await vi.waitFor(() => expect(responses(early)).toHaveLength(1));
+    expect(responses(early)).toEqual([
+      { type: "channel.response", requestId: "early", output: null },
+    ]);
+    expect(owner.sent.find((message) => message.type === "channel.deliver")).toMatchObject({
+      delivery: { source: { kind: "plugin", pluginId: "controller" } },
+    });
     await runtime.stopAll();
   });
 });

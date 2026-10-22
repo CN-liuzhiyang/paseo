@@ -1,5 +1,6 @@
 import type { PaseoApi } from "@getpaseo/client";
 import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
+import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
 import type { PluginRpcContract } from "../rpc.js";
 import type { PluginCleanup } from "../contracts.js";
 import type { ProviderRegistration } from "./provider.js";
@@ -35,8 +36,17 @@ export interface ChannelDeliveryScheduleSource {
   runId: string;
 }
 
+/** A delivery another plugin sent through `server.deliver`. */
+export interface ChannelDeliveryPluginSource {
+  kind: "plugin";
+  /** The sending plugin. The host fills it in; a sender cannot name another plugin. */
+  pluginId: string;
+  /** What the sender called the message. Channels use it as the heading instead of a run title. */
+  title: string;
+}
+
 /** What produced a delivery. Switch on `kind`: more sources may be added. */
-export type ChannelDeliverySource = ChannelDeliveryScheduleSource;
+export type ChannelDeliverySource = ChannelDeliveryScheduleSource | ChannelDeliveryPluginSource;
 
 /** One outbound message the host hands to a channel. */
 export interface ChannelDelivery {
@@ -57,6 +67,16 @@ export interface ChannelDestination {
   to: string;
   /** What people see when they choose a destination. */
   label: string;
+}
+
+/** What a plugin hands to `server.deliver`. The host turns it into a `ChannelDelivery`. */
+export interface ChannelMessage {
+  to: string;
+  /** Stable per message, passed on to the channel. */
+  idempotencyKey: string;
+  title: string;
+  text: string;
+  status: "succeeded" | "failed";
 }
 
 export interface ChannelRegistration {
@@ -96,6 +116,14 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
    * hosts that predate it. Channel IDs use the same form as RPC names.
    */
   registerChannel?(channel: ChannelRegistration): void;
+  /**
+   * Send a message through a channel any running plugin registered, this one included. Rejects with
+   * the channel's own error, or `No running plugin provides channel "<id>"`. Undefined on hosts that
+   * predate it: check `typeof server.deliver === "function"` once, in the entry.
+   */
+  deliver?(channelId: string, message: ChannelMessage): Promise<void>;
+  /** The channels `deliver` can reach, as `paseo schedule channels` lists them. Undefined like `deliver`. */
+  listChannels?(): Promise<ScheduleChannel[]>;
   registerUsageSource(source: UsageSourceRegistration): void;
 }
 

@@ -71,7 +71,10 @@ inside the daemon it would ask, so the member being present is the capability.
 `server.paseo` is the example. Check `if (!server.paseo)` once in the entry,
 log what the host is missing, and contribute nothing. `server.registerChannel`
 works the same way: a channel plugin checks it once and contributes no channel
-on a host without it.
+on a host without it. So do `server.deliver` and `server.listChannels`, which
+arrive together: a plugin that sends through another plugin's channel checks
+`typeof server.deliver === "function"` once and sends nothing on a host without
+it.
 
 ## When upstream lands the same capability
 

@@ -2219,11 +2219,42 @@ A schedule created with `paseo schedule create --deliver chat:general ...` then 
 | `text`           | The run's final answer on success, the error message on failure.                     |
 | `agentId`        | The agent that ran, or `null` when the run failed before one existed.                |
 
-Switch on `source.kind` and ignore kinds you do not handle; more sources may be added.
+Switch on `source.kind`; more sources may be added, so handle one you do not recognise like `plugin` instead of failing. A `plugin` source, `{ kind: "plugin", pluginId, title }`, is a message another plugin sent with `server.deliver()`. Use `source.title` as its heading and post `text` as written.
 
 `destinations()` is optional. It returns the places the channel can post to as `ChannelDestination[]`, `{ to, label }`, and receives the same `{ paseo }` context. Paseo asks for it each time a client lists channels: the app's "Deliver results" field and `paseo schedule channels` show destinations by `label` and store the matching `to`, so people never type an address. Return what exists now; a channel without `destinations()` offers none, and schedules can still name it with an explicit `to`. Paseo waits up to 10 seconds. If it throws or times out, that channel is listed as unavailable with the error while the other channels still appear.
 
 Resolve once the message is accepted. Throwing or rejecting marks the run's delivery `failed` with that message; the run's own status does not change. Paseo makes one attempt per run and waits up to 60 seconds. Channel IDs follow the same rules as RPC names and must be unique within a plugin. A channel can be registered after the entry returns, for example once settings load. If two running plugins register the same ID, the plugin with the alphabetically first plugin ID receives the deliveries and the others log an error.
+
+### Send through a channel
+
+A plugin can post to any channel a running plugin registered, its own included. `server.deliver()` and `server.listChannels()` are undefined on hosts that predate them; check once in the entry.
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  const { deliver, listChannels } = server;
+  if (typeof deliver !== "function" || typeof listChannels !== "function") {
+    console.error("This plugin needs a Paseo host that provides server.deliver.");
+    return () => {};
+  }
+  async function announce(): Promise<void> {
+    const channels = await listChannels();
+    if (!channels.some((channel) => channel.id === "chat")) return;
+    await deliver("chat", {
+      to: "general",
+      idempotencyKey: "release-2026-10-23",
+      title: "Release check",
+      text: "The release is out. Did the rollout start?",
+      status: "succeeded",
+    });
+  }
+  const timer = setTimeout(() => void announce().catch(console.error), 5_000);
+  return () => clearTimeout(timer);
+}
+```
+
+`listChannels()` returns what `paseo schedule channels` shows: `{ id, label, pluginId, destinations, error? }`. `deliver()` takes `{ to, idempotencyKey, title, text, status }`, all required. The channel receives a `ChannelDelivery` whose `source` is `{ kind: "plugin", pluginId, title }`, with Paseo filling in the sending plugin's ID, and whose `agentId` is `null`. `deliver()` resolves once the channel accepts the message. It rejects with the channel's own error, with `No running plugin provides channel "<id>"` when none is running, or after the 60-second timeout a schedule delivery gets. Extra fields in the message are rejected.
 
 ## Debug backend output
 
