@@ -11,7 +11,7 @@ import {
   ProviderInputSchema,
   ProviderLaunchSchema,
 } from "@getpaseo/plugin/server/provider";
-import type { ChannelDelivery } from "@getpaseo/plugin/server";
+import type { ChannelDelivery, ChannelMessage } from "@getpaseo/plugin/server";
 import { z } from "zod";
 
 export interface PluginChannelMetadata {
@@ -64,6 +64,8 @@ export type PluginProcessRequest =
   | { type: "invoke"; requestId: string; method: string; input: unknown }
   | { type: "channel.deliver"; requestId: string; channelId: string; delivery: ChannelDelivery }
   | { type: "channel.destinations"; requestId: string; channelId: string }
+  // The host's answer to a plugin's `channel.*.request`; `error` set means it failed.
+  | { type: "channel.response"; requestId: string; output?: unknown; error?: string }
   | {
       type: "provider.connect";
       providerId: string;
@@ -85,6 +87,13 @@ export type PluginProcessMessage =
   | { type: "settings.changed"; settingsId: string }
   | { type: "hooks.changed"; hooks: { events: string[]; before: string[] } }
   | { type: "channels.changed"; channels: PluginChannelMetadata[] }
+  | {
+      type: "channel.deliver.request";
+      requestId: string;
+      channelId: string;
+      message: ChannelMessage;
+    }
+  | { type: "channel.list.request"; requestId: string }
   | {
       type: "ready";
       methods: string[];
@@ -162,10 +171,26 @@ const channelDeliverySchema = z
           runId: z.string().min(1),
         })
         .strict(),
+      z
+        .object({
+          kind: z.literal("plugin"),
+          pluginId: z.string().min(1),
+          title: z.string(),
+        })
+        .strict(),
     ]),
     status: z.enum(["succeeded", "failed"]),
     text: z.string(),
     agentId: z.string().nullable(),
+  })
+  .strict();
+export const ChannelMessageSchema = z
+  .object({
+    to: z.string(),
+    idempotencyKey: z.string().min(1),
+    title: z.string(),
+    text: z.string(),
+    status: z.enum(["succeeded", "failed"]),
   })
   .strict();
 const frameFields = {
@@ -269,6 +294,14 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
       .strict(),
     z
       .object({
+        type: z.literal("channel.response"),
+        requestId: z.string().min(1),
+        output: z.unknown().optional(),
+        error: z.string().optional(),
+      })
+      .strict(),
+    z
+      .object({
         type: z.literal("provider.connect"),
         providerId: z.string().min(1),
         connectionId: z.string().min(1),
@@ -298,6 +331,15 @@ export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.dis
     z
       .object({ type: z.literal("channels.changed"), channels: z.array(channelMetadataSchema) })
       .strict(),
+    z
+      .object({
+        type: z.literal("channel.deliver.request"),
+        requestId: z.string().min(1),
+        channelId: z.string().min(1),
+        message: ChannelMessageSchema,
+      })
+      .strict(),
+    z.object({ type: z.literal("channel.list.request"), requestId: z.string().min(1) }).strict(),
     z
       .object({
         type: z.literal("ready"),

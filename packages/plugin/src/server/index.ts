@@ -7,8 +7,10 @@ export type {
 } from "./usage.js";
 export type {
   ChannelDelivery,
+  ChannelDeliveryPluginSource,
   ChannelDeliveryScheduleSource,
   ChannelDestination,
+  ChannelMessage,
   ChannelDeliverySource,
   ChannelRegistration,
   PluginHandlerContext,
