@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## Unreleased
+
+Based on upstream v0.12.0, the same as 1.4.0.
+
+### Added
+
+- Plugins can send a message through any channel another plugin registered, with `server.deliver()` and `server.listChannels()`. Channels receive `source: { kind: "plugin", pluginId, title }`; a channel plugin should use `title` as the heading and treat a source kind it does not know the same way.
+
 ## 1.4.0 - 2026-10-20
 
 Carries upstream v0.12.0, up from v0.11.1. The full upstream notes are in

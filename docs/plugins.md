@@ -431,6 +431,35 @@ disabled or no running plugin provides the channel; a stopping plugin rejects it
 deliveries. Duplicate IDs across plugins resolve to the alphabetically first plugin ID, and the
 others log an error.
 
+### Delivering from a plugin
+
+A plugin sends through any registered channel with `server.deliver(channelId, message)` and lists
+them with `server.listChannels()`. Both are optional on the context, like `registerChannel`. A
+plugin checks `typeof server.deliver === "function"` once in its entry and contributes nothing on a
+host without it. The two arrive together.
+
+The subprocess sends `channel.deliver.request` or `channel.list.request` to the daemon, which
+answers with `channel.response` carrying `output` or `error`. Nothing else in the plugin protocol
+runs in this direction, so these requests are the only place the daemon answers a call a plugin
+started. The daemon runs the same `deliverToChannel` and `listChannels` a schedule does, so owner
+resolution, the 60-second timeout, and the missing-channel error
+(`No running plugin provides channel "<id>"`) are identical, and a channel's own error reaches the
+sender unchanged. A plugin can deliver to its own channel. The request is answered even before the
+sender reports ready.
+
+The daemon builds the `ChannelDelivery` itself: `source` is
+`{ kind: "plugin", pluginId, title }`, `agentId` is `null`, and `pluginId` is the plugin whose
+process sent the request. The message schema is strict, so a `pluginId` in the message is a
+protocol violation rather than an ignored field. The subprocess validates it first and rejects the
+call, because a malformed message to the daemon ends the plugin.
+
+A channel plugin handles this source like this:
+
+- Use `source.title` as the heading and post `text` as written. Do not add "scheduled run" wording.
+- `status` still says whether the sender calls the message a success or a failure.
+- Treat any `kind` you do not recognise the way you treat `plugin`, not as an error. More sources
+  will be added.
+
 `ScheduleService` receives the delivery function through its options. It delivers after the run
 outcome is stored, for succeeded and failed runs alike, and records the result on the run as
 `delivery: { status, at, error? }`, and on the schedule as `lastDelivery` (plus `runId`) so lists
