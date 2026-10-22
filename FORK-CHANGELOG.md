@@ -9,9 +9,9 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
-## Unreleased
+## 1.4.1 - 2026-10-22
 
-Based on upstream v0.12.0, the same as 1.4.0.
+Carries upstream v0.12.0, the same base as 1.4.0.
 
 ### Added
 
