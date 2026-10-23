@@ -50,6 +50,12 @@ rather than one that gets skipped. Exactly one of `upstreamable`, `fork-only`,
 from `infra` because a sync PR carries no fork patch, so there is no
 plugin-or-core call to make; everything else has one.
 
+Opening a PR with its label (`gh pr create --label ...`) fires `opened` and
+`labeled` together; the guard's concurrency cancels one of the two runs, and the
+cancelled checks keep the PR `BLOCKED` even though the other run passed
+(PR #12, 2026-10-23). Re-run the cancelled run (`gh run rerun <id>`) and the
+merge goes through.
+
 ## The fork carries extension points, not features
 
 When we need something Paseo cannot do:
