@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.4.2 - 2026-10-23
+
+Carries upstream v0.12.0, the same base as 1.4.1.
+
+### Added
+
+- A plugin screen can open another plugin's screen without reloading the app, with `navigation.openPluginScreen(pluginId, screenId, params?)`. It works on desktop, web, and phones. If the plugin is not enabled or has no such screen, it throws and a toast says so. Check `typeof navigation?.openPluginScreen === "function"` before using it; older hosts do not have it.
+
 ## 1.4.1 - 2026-10-22
 
 Carries upstream v0.12.0, the same base as 1.4.0.
