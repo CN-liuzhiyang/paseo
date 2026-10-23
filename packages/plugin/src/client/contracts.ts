@@ -53,6 +53,16 @@ interface PluginNavigableHostProps extends PluginHostProps {
       readonly workspaceId: string;
       readonly serverId?: string;
     }) => void;
+    /**
+     * Opens a screen of any plugin enabled on the selected host, in the app, without a reload.
+     * `params` are string route params. Throws, and shows a toast, when the plugin or screen is
+     * unavailable. Undefined on hosts that predate it.
+     */
+    readonly openPluginScreen?: (
+      pluginId: string,
+      screenId: string,
+      params?: PluginScreenParams,
+    ) => void;
   };
 }
 

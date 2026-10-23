@@ -930,6 +930,8 @@ export default function contribute(client: PluginClientContext) {
 
 Paseo owns the route, header, close action, host picker, error boundary, and query client. The plugin owns the screen body.
 
+`navigation.openPluginScreen(pluginId, screenId, params?)` opens a screen of any plugin enabled on the selected host, inside the app and without reloading it. `params` is an object of strings, the same as for `openScreen`. It throws when the plugin is not enabled, has no such screen, or `params` is invalid, and Paseo also shows the message in a toast. It only navigates: the target reads `params` as it would from a deep link and receives nothing else. It is optional; check `typeof navigation?.openPluginScreen === "function"`.
+
 `addScreen({ id, title, Component })` registers a screen. `title` is the screen header's title: a
 string, or a function that takes the screen's params and returns one, so a bot screen can show the
 bot's name. The function runs again when the params change. Registration throws on an empty title
