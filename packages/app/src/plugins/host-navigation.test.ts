@@ -6,18 +6,24 @@ describe("plugin host navigation", () => {
     const destinations: unknown[] = [];
     const browsers: string[] = [];
     const workspaces = new Set(["selected:one", "remote:two"]);
+    const screens = new Set(["selected:other/detail"]);
+    const errors: string[] = [];
     const navigation = createPluginHostNavigation("selected", {
       browserAvailable: electron,
       resolveWorkspace: ({ serverId, workspaceId }) =>
         workspaces.has(`${serverId}:${workspaceId}`) ? workspaceId : null,
       openAgent: (input) => destinations.push(input),
       openWorkspace: (input) => destinations.push(input),
+      showError: (message) => errors.push(message),
+      hasPluginScreen: ({ serverId, pluginId, screenId }) =>
+        screens.has(`${serverId}:${pluginId}/${screenId}`),
+      openPluginScreen: (input) => destinations.push(input),
       createBrowser: ({ initialUrl }) => {
         browsers.push(initialUrl);
         return { browserId: `browser-${browsers.length}` };
       },
     });
-    return { navigation, destinations, browsers, workspaces };
+    return { navigation, destinations, browsers, workspaces, errors };
   }
 
   it("creates and focuses a local browser in the selected or explicit host workspace", () => {
@@ -86,5 +92,36 @@ describe("plugin host navigation", () => {
       "workspaceId",
     );
     expect(browsers).toEqual([]);
+  });
+
+  it("opens another plugin's screen on the rendering host with its params", () => {
+    const { navigation, destinations, errors } = setup();
+    navigation.openPluginScreen!("other", "detail", { run: "a&b=c" });
+    navigation.openPluginScreen!("other", "detail");
+    expect(destinations).toEqual([
+      { serverId: "selected", pluginId: "other", screenId: "detail", params: { run: "a&b=c" } },
+      { serverId: "selected", pluginId: "other", screenId: "detail", params: {} },
+    ]);
+    expect(errors).toEqual([]);
+  });
+
+  it.each([
+    ["a plugin that is not installed", "missing", "detail"],
+    ["a screen the plugin does not have", "other", "missing"],
+  ])("throws and shows an error for %s", (_name, pluginId, screenId) => {
+    const { navigation, destinations, errors } = setup();
+    expect(() => navigation.openPluginScreen!(pluginId, screenId)).toThrow("unavailable");
+    expect(errors).toEqual([`Plugin screen is unavailable: ${pluginId}/${screenId}`]);
+    expect(destinations).toEqual([]);
+  });
+
+  it.each([
+    ["an array", ["x"]],
+    ["a non-string value", { run: 1 }],
+  ])("rejects params that are %s before navigating", (_name, params) => {
+    const { navigation, destinations, errors } = setup();
+    expect(() => navigation.openPluginScreen!("other", "detail", params as never)).toThrow(/param/);
+    expect(errors).toHaveLength(1);
+    expect(destinations).toEqual([]);
   });
 });
