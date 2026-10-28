@@ -15,7 +15,7 @@ packages/server/AGENTS.md` if they show up.
 
 | Doc                                  | What's in it                                                        |
 | ------------------------------------ | ------------------------------------------------------------------- |
-| [fork-strategy.md](fork-strategy.md) | Why this fork exists, the red line, branches, the weekly sync       |
+| [fork-strategy.md](fork-strategy.md) | Why this fork exists, the red line, branches, sync, upstream bugs   |
 | [plugins.md](plugins.md)             | Where our own behaviour lives, and how it depends on fork-only APIs |
 | [releases.md](releases.md)           | What this fork publishes, tags, versions, and what stays upstream's |
 

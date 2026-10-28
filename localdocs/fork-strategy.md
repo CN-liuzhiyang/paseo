@@ -50,6 +50,12 @@ rather than one that gets skipped. Exactly one of `upstreamable`, `fork-only`,
 from `infra` because a sync PR carries no fork patch, so there is no
 plugin-or-core call to make; everything else has one.
 
+Opening a PR with its label (`gh pr create --label ...`) fires `opened` and
+`labeled` together; the guard's concurrency cancels one of the two runs, and the
+cancelled checks keep the PR `BLOCKED` even though the other run passed
+(PR #12, 2026-10-23). Re-run the cancelled run (`gh run rerun <id>`) and the
+merge goes through.
+
 ## The fork carries extension points, not features
 
 When we need something Paseo cannot do:
@@ -205,6 +211,37 @@ back:
 ```bash
 git revert <our sha>   # revert, not rebase — `next` is shared
 ```
+
+## Small upstream bugs: report, don't patch
+
+For a small bug that is upstream's too, start with an issue, not a fork patch.
+Upstream runs a diagnose bot that reproduces bugs, opens a fix PR, and gets it
+merged, often within an hour. Labels `diagnosing` then `diagnosed` track it.
+
+The bot picks up new activity. An issue sitting at `triaged` with nobody on it
+gets re-diagnosed within minutes of a fresh comment. Search for an existing
+issue first, and comment there instead of opening a duplicate. #3828 waited two
+months at `p3`. A comment on 2026-10-21 had the fix (#7538) merged 80 minutes
+later.
+
+What made that comment fast to act on:
+
+- A minimal repro with synthetic paths. The repository is public, so leave out
+  real project names and paths.
+- The observed error, and the result you expected.
+- The cause, with file names, and a sibling that already works. In #3828 that
+  sibling was image paths in the same preview.
+- Why earlier QA missed it.
+- A one-line suggested fix.
+
+Report problems that already exist upstream. Don't report bugs that only
+happen because of our delta.
+
+Once the fix is merged, the next sync brings it in. If you need it sooner,
+cherry-pick the upstream merge commit onto a branch off `next` and open a PR
+labelled `sync`. A cherry-pick is a partial sync, so that is a person's call,
+the same way taking a release is. The next sync merges the identical change
+without conflict, so there is nothing to revert.
 
 ## Plugins depend on fork-only APIs
 
