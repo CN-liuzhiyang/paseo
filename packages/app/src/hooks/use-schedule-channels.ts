@@ -1,5 +1,6 @@
 import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
 import { useFetchQuery } from "@/data/query";
+import { i18n } from "@/i18n/i18next";
 import { useSessionStore } from "@/stores/session-store";
 import { toErrorMessage } from "@/utils/error-messages";
 
@@ -34,7 +35,7 @@ export function useScheduleChannels(input: {
     queryFn: async () => {
       const client = useSessionStore.getState().sessions[serverId]?.client ?? null;
       if (!client) {
-        throw new Error("Host is not connected");
+        throw new Error(i18n.t("workspace.terminal.hostDisconnected"));
       }
       const payload = await client.scheduleChannels();
       if (payload.error) {
