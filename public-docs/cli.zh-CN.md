@@ -329,6 +329,7 @@ paseo wait <id> --timeout 60   # 60 second timeout
 paseo schedule create --every 30m --cwd ~/dev/my-app "Continue the refactor and leave a note."
 paseo schedule ls
 paseo schedule pause <id>
+paseo schedule channels   # delivery channels plugins offer, for --deliver <channel:to>
 ```
 
 ## 权限 {#permissions}

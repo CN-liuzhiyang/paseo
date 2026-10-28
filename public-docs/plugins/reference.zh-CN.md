@@ -884,15 +884,17 @@ export default function contribute(client: PluginClientContext) {
 
 `PluginScreenProps` 包含：
 
-| 字段         | 含义                                                                                                                                                                                                                                                                                   |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                       |
-| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                   |
-| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                        |
-| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                            |
-| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。 |
+| 字段         | 含义                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme`      | 当前 Paseo 主题的带类型 `PluginTheme` 颜色令牌。                                                                                                                                                                                                                                                                                                                                                                                                |
+| `host`       | 所选主机的 `id` 和显示用的 `label`。                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `layout`     | `compact` 以及 `ios`、`android` 或 `web` 平台。                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `params`     | 打开界面时传入的参数，键和值都是字符串。没有参数时为 `{}`。                                                                                                                                                                                                                                                                                                                                                                                     |
+| `navigation` | 可选的客户端导航。`openAgent({ agentId, serverId? })` 和 `openWorkspace({ workspaceId, serverId? })` 在 `serverId` 上打开目标，省略时在所选主机上打开。`openCommitDiff({ workspaceId, sha, serverId? })` 打开 Paseo 的提交 diff 标签页，可以显示检出能访问到的任意提交；在早于它的主机上，这个方法本身是可选的。`openBrowser({ url, workspaceId, serverId? })` 仅在 Electron 上可用；见[链接和浏览器](#external-links-and-workspace-browsers)。 |
 
 路由、标题栏、关闭操作、主机选择器、错误边界和 query client 由 Paseo 负责。界面主体由插件负责。
+
+`navigation.openPluginScreen(pluginId, screenId, params?)` 会在应用内打开所选主机上已启用的任意插件的一个界面，不会重新加载应用。`params` 是由字符串组成的对象，与 `openScreen` 的 `params` 相同。插件未启用、没有该界面，或 `params` 无效时，它会抛出错误，Paseo 也会用 toast 显示这条消息。它只负责导航：目标界面会像从深度链接读取那样读取 `params`，除此之外不会收到任何东西。它是可选的；请先检查 `typeof navigation?.openPluginScreen === "function"`。
 
 `addScreen({ id, title, Component })` 注册一个界面。`title` 是界面标题栏的[显示文本](#runtime-translations)，也可以是接收界面参数并返回显示文本的函数。参数或语言变化时，该函数会再次运行。无效标题和空字符串标题会被拒绝。如果标题函数抛出错误或解析为空字符串，会改为显示界面 ID；界面仍然会渲染。
 
@@ -2238,6 +2240,111 @@ export default function contribute(server: PluginServerContext) {
 输入和输出在两端都会校验。RPC 名称以小写字母开头，由小写字母、数字、点、连字符或下划线组成。`useRpc()` 返回一个带类型的异步函数。请求状态、缓存和变更请使用 TanStack Query。
 
 后端处理函数以 `{ paseo }` 的形式收到同样的 `PaseoApi`。它们的连接属于子进程，并在插件停止时关闭。在插件代码订阅之前，它不会订阅时间线或目录事件。清理和时间线替换请遵循 [SDK 事件契约](/docs/sdk/events)。后端代码可以使用 Node API 以及安装在插件目录中的依赖。
+
+插件自己启动的工作，例如来自外部服务的事件或定时器，没有可以接收 API 的处理函数。请使用 `server.paseo`：它与处理函数使用的是同一个连接，入口一运行就可以使用。在早于它的主机上它是 undefined；插件开始停止后它就不再可用，因此不要在清理时调用它。
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  const paseo = server.paseo;
+  if (!paseo) {
+    console.error("This plugin needs a Paseo host that provides server.paseo.");
+    return () => {};
+  }
+  const timer = setInterval(() => {
+    void paseo.agents.list({ page: { limit: 20 } }).then(({ entries }) => {
+      console.log(`${entries.length} agents`);
+    });
+  }, 60_000);
+  return () => clearInterval(timer);
+}
+```
+
+## 出站渠道 {#outbound-channels}
+
+定时任务可以指定一个投递目标 `{ channel, to }`。它的某次运行结束时，Paseo 会把结果交给注册了该渠道的插件。用 `@getpaseo/plugin/server` 中的 `server.registerChannel()` 注册渠道。在早于它的主机上，它是 undefined。
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  if (!server.registerChannel) {
+    console.error("This plugin needs a Paseo host that provides server.registerChannel.");
+    return () => {};
+  }
+  server.registerChannel({
+    id: "chat",
+    label: "Team chat",
+    async deliver(delivery) {
+      const heading = delivery.status === "succeeded" ? "Report" : "Run failed";
+      const response = await fetch(`https://chat.example.com/api/rooms/${delivery.to}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": delivery.idempotencyKey },
+        body: JSON.stringify({ text: `${heading}\n\n${delivery.text}` }),
+      });
+      if (!response.ok) throw new Error(`Chat API returned ${response.status}`);
+    },
+    async destinations() {
+      const response = await fetch("https://chat.example.com/api/rooms");
+      if (!response.ok) throw new Error(`Chat API returned ${response.status}`);
+      const rooms: Array<{ id: string; name: string }> = await response.json();
+      return rooms.map((room) => ({ to: room.id, label: room.name }));
+    },
+  });
+  return () => {};
+}
+```
+
+用 `paseo schedule create --deliver chat:general ...` 创建的定时任务，随后会以 `to: "general"` 到达这个渠道。
+
+`deliver()` 接收一个 `ChannelDelivery`，以及与 RPC 处理函数相同的 `{ paseo }` 上下文：
+
+| 字段             | 含义                                                                          |
+| ---------------- | ----------------------------------------------------------------------------- |
+| `to`             | 投递目标中的地址。只有渠道会解释它。                                          |
+| `idempotencyKey` | 运行 ID。把它传给厂商 API，这样重复投递就不会发送两次。                       |
+| `source`         | 产生这次投递的来源：`{ kind: "schedule", scheduleId, scheduleName, runId }`。 |
+| `status`         | `"succeeded"` 或 `"failed"`。失败的运行同样会投递。                           |
+| `text`           | 成功时为运行的最终回答，失败时为错误消息。                                    |
+| `agentId`        | 运行的 Agent；如果运行在 Agent 创建之前就失败，则为 `null`。                  |
+
+按 `source.kind` 分支判断；以后可能会增加新的来源，因此遇到不认识的来源时，请像处理 `plugin` 那样处理它，而不是直接失败。`plugin` 来源 `{ kind: "plugin", pluginId, title }` 是另一个插件通过 `server.deliver()` 发送的消息。请把 `source.title` 用作它的标题，并按原文发布 `text`。
+
+`destinations()` 是可选的。它返回渠道可以发送到的位置，类型为 `ChannelDestination[]`，即 `{ to, label }`，并接收同样的 `{ paseo }` 上下文。每当客户端列出渠道时，Paseo 都会调用它：应用中的“Deliver results”字段和 `paseo schedule channels` 会按 `label` 显示目的地，并保存对应的 `to`，因此用户从不需要手动输入地址。请只返回当前存在的目的地；没有 `destinations()` 的渠道不提供任何目的地，但定时任务仍然可以用显式的 `to` 指定它。Paseo 最多等待 10 秒。如果它抛出错误或超时，该渠道会以不可用的形式列出并附上错误，其他渠道仍会显示。
+
+消息被接受后再 resolve。抛出错误或 reject 会把这次运行的投递标记为 `failed`，并附上该消息；运行本身的状态不变。Paseo 对每次运行只尝试一次，并最多等待 60 秒。渠道 ID 与 RPC 名称遵循相同的规则，并且在同一个插件内必须唯一。渠道可以在入口返回之后再注册，例如在设置加载完成后。如果两个正在运行的插件注册了相同的 ID，则插件 ID 按字母顺序排在最前的那个会收到投递，其他插件会记录一条错误日志。
+
+### 通过渠道发送 {#send-through-a-channel}
+
+插件可以向任何正在运行的插件注册的渠道发送消息，包括它自己的渠道。在早于它们的主机上，`server.deliver()` 和 `server.listChannels()` 为 undefined；请在入口中检查一次。
+
+```ts
+import type { PluginServerContext } from "@getpaseo/plugin/server";
+
+export default function contribute(server: PluginServerContext) {
+  const { deliver, listChannels } = server;
+  if (typeof deliver !== "function" || typeof listChannels !== "function") {
+    console.error("This plugin needs a Paseo host that provides server.deliver.");
+    return () => {};
+  }
+  async function announce(): Promise<void> {
+    const channels = await listChannels();
+    if (!channels.some((channel) => channel.id === "chat")) return;
+    await deliver("chat", {
+      to: "general",
+      idempotencyKey: "release-2026-10-23",
+      title: "Release check",
+      text: "The release is out. Did the rollout start?",
+      status: "succeeded",
+    });
+  }
+  const timer = setTimeout(() => void announce().catch(console.error), 5_000);
+  return () => clearTimeout(timer);
+}
+```
+
+`listChannels()` 返回 `paseo schedule channels` 显示的内容：`{ id, label, pluginId, destinations, error? }`。`deliver()` 接收 `{ to, idempotencyKey, title, text, status }`，全部为必填项。渠道收到的 `ChannelDelivery` 中，`source` 为 `{ kind: "plugin", pluginId, title }`，由 Paseo 填入发送消息的插件 ID，`agentId` 为 `null`。渠道接受消息后，`deliver()` 才会 resolve。它会以渠道自身的错误 reject；没有正在运行的插件提供该渠道时，以 `No running plugin provides channel "<id>"` reject；超过定时任务投递所用的 60 秒超时后，同样会 reject。消息中多出的字段会被拒绝。
 
 ## 调试后端输出 {#debug-backend-output}
 

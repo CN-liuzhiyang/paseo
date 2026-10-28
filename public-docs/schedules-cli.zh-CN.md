@@ -62,6 +62,32 @@ paseo schedule create \
   "Review overnight CI failures and summarize anything urgent."
 ```
 
+## 在工作区中运行 {#run-in-a-workspace}
+
+`--workspace <id>` 会让每次执行都在你已有的工作区中进行，而不是为每次运行各建一个工作区。定时任务使用该工作区的目录，因此省略 `--cwd`；使用 `--host` 时，`--workspace` 同样替代 `--cwd`。
+
+```bash
+paseo workspace create --isolation local --path ~/dev/my-app --title "Weekly report"
+paseo workspace ls
+paseo schedule create \
+  --cron "0 9 * * 1" \
+  --name weekly-report \
+  --provider codex/gpt-5.5 \
+  --workspace <workspace-id> \
+  "Write the weekly report and leave it in docs/reports."
+```
+
+`paseo schedule ls` 会在单独的一列中显示工作区。之后要修改时：
+
+```bash
+paseo schedule update <id> --workspace <other-workspace-id>
+paseo schedule update <id> --no-workspace
+```
+
+`--no-workspace` 会切换回每次运行创建一个新工作区，并保留定时任务当前的工作目录，也就是旧工作区的目录。要在同一条命令中修改它，请加上 `--cwd`。
+
+请使用普通工作区，而不是后台工作区；归档行为以及工作区缺失时的情况，见[在一个工作区中运行](/docs/schedules#run-in-one-workspace)。主机必须支持此功能，否则命令会失败，并提示你更新主机。
+
 ## heartbeat {#heartbeats}
 
 在一个正在运行的 Paseo Agent 中，为同一段对话创建 heartbeat：
@@ -96,6 +122,29 @@ paseo schedule run-once <id>
 paseo schedule update <id> --every 10m --max-runs 6
 paseo schedule delete <id>
 ```
+
+## 投递结果 {#deliver-results}
+
+插件可以注册出站渠道，例如聊天集成。用 `--deliver <channel:to>` 把定时任务指向它，每次运行的结果（包括失败的运行）都会发到那里：
+
+```bash
+paseo schedule create --cron "0 9 * * 1-5" --name standup \
+  --deliver chat:general \
+  "Summarize yesterday's merged PRs."
+paseo schedule update <id> --deliver chat:releases
+paseo schedule update <id> --no-deliver
+```
+
+第一个 `:` 之前的文本是渠道 ID，其余部分是只有该渠道能解释的地址。`paseo schedule channels` 会列出正在运行的插件提供的渠道，以及每个渠道给出的目的地，并显示应传入的 `to`：
+
+```bash
+paseo schedule channels
+# CHANNEL  LABEL      DESTINATION  TO
+# chat     Team chat  General      general
+# chat     Team chat  Releases     releases
+```
+
+无法列出目的地的渠道会显示 `(unavailable: <error>)`。创建定时任务时不会检查该渠道。`schedule inspect` 会显示投递目标，`schedule logs` 会显示每次运行的投递状态。投递失败会记录在该次运行上，但不会改变运行本身的状态；Paseo 不会重试。
 
 ## 节奏 {#cadence}
 

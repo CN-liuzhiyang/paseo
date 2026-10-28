@@ -149,6 +149,8 @@ MCP heartbeat 是临时的：只能创建或删除。要修改一个 heartbeat�
 
 默认情况下，新建 Agent 的定时任务每次运行结束时都会归档其工作区。`create_schedule` 和 `update_schedule` 不提供 **Archive on finish**（`archiveOnFinish`）；要让之后的运行工作区保持活跃，请[在应用中修改该选项](/docs/schedules#keep-run-workspaces)。
 
+`create_schedule` 和 `update_schedule` 接受 `delivery: { channel, to }`，把每次运行的结果（包括失败的运行）发送到[插件](/docs/plugins/reference#outbound-channels)注册的出站渠道。`update_schedule` 通过 `delivery: null` 清除它。每次运行都会记录自己的投递状态。
+
 ### Agent 配置 {#agent-profiles}
 
 | 工具            | 功能                                                                          |
