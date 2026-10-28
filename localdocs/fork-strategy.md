@@ -156,6 +156,20 @@ gh pr create --base next --title "sync: upstream v0.11.1" --label sync
 Skipping `npm ci` after the lockfile moves produces type errors that read like
 real ones and are not.
 
+Upstream's tests check the fork's own additions too, so a clean merge can still
+fail CI on fork code. Since 0.13, every `public-docs/*.zh-CN.md` must carry each
+English section, so a section the fork added in English needs its Chinese
+translation (`packages/website/src/content-translations.test.ts`). App error
+strings must go through i18n (`packages/app/src/i18n/resources.test.ts`).
+
+Read every red job on the sync PR down to the failing step. A job that failed
+while installing, such as Playwright refusing a new `ubuntu-latest` image, never
+ran its tests: it hid the i18n failure above on the v0.13.2 sync. Fix the
+environment, usually by taking upstream's own CI fix early, and get the tests to
+run before calling the sync clean. `npm audit signatures` failing with
+`EMISSINGSIGNATUREKEY` on an unchanged lockfile is the registry; re-run that job
+alone.
+
 Step through the releases, one PR each, only when the plan shows the conflict
 count jumping between neighbours. Stepping exists to make a big conflict set
 cheaper, and `rerere` replays each step's resolutions into the next. At the
@@ -173,7 +187,8 @@ patch tag on `upstream/main` keeps the base close.
 
 Once the PR is merged, `git pull` on `next` and cut a release from it —
 [releases.md](releases.md#cutting-one). Absorbing upstream and shipping it are
-one errand: nobody is running `next`.
+one errand: nobody is running `next`. The exception is when the person says to
+hold the release for fork work still in progress; then stop at the merge.
 
 Push `main` too. The script fast-forwards it locally, and the remote mirror must
 track the same upstream tip. The `delta` check compares against the newest
