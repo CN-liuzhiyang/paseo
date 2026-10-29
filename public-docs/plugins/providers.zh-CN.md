@@ -299,6 +299,8 @@ case "session.can_stop_runtime": {
 
 `canStopRuntime(): Promise<boolean>` 由你的 Provider 会话实现。只有释放运行时不会丢失后台 shell、监控任务、原生子 Agent、排队的完成报告或待处理的自主回复时，才返回 `true`。此查询不得停止或修改会话。仍有工作时返回 `false`。查询拒绝、响应无效或超时也会保留运行时。不要用 `request.completed` 响应此查询。
 
+子 Agent 结束一轮时，Paseo 也会用同一个查询判断发给调用方的完成通知是不是最终版。查询返回 `false` 期间，调用方只会收到一条标明“不是最终回复”的通知，最终通知要等它返回 `true` 才发。和清理不同，这里查询被拒绝或超时按已停下处理，没有实现该查询的 Provider 也一样。
+
 Paseo 始终检查前台工作、权限、排队投递、生命周期操作、工作中的托管或原生后代 Agent，以及调用方尚未完成的本地或远程完成通知订阅。订阅保护覆盖注册、恢复，直到通知投递获确认。Provider 返回 `true` 也不能绕过这些阻止条件。Paseo 会在调用现有的 `session.close` 操作之前重新检查活动。受保护的工作完成后，会重新开始一小时的空闲期。保存的 Provider 持久化数据必须能恢复同一个会话。主机设置 `agents.idleRuntimeCleanup: false` 会禁用所有 Provider 的清理。
 
 ## 发布时间线条目 {#publish-timeline-items}

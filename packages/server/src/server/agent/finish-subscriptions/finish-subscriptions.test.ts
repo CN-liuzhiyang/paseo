@@ -520,6 +520,13 @@ test("finish recovery protects callers before durable intent has loaded", async 
 
 // --- Following a child past a turn that ended with background work still running ---
 
+// The suite runs beside hundreds of others, and every followed turn writes the record to disk:
+// poll fast and for long instead of failing on a slow machine.
+const EVENTUALLY = { interval: 5, timeout: 15_000 } as const;
+async function eventually(check: () => boolean) {
+  await expect.poll(check, EVENTUALLY).toBe(true);
+}
+
 const SETTLED: ChildActivity = {
   running: false,
   providerBackgroundWork: false,
@@ -549,30 +556,30 @@ test("a turn that ends with background work notifies once as not final, then the
     recheckIntervalMs: NO_RECHECK,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   state.observation.waits[0]!.result.resolve(reply("Tests are running, I will report when done"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("ended its turn but still has background work");
   expect(state.delivery.prompts[0]).toContain("provider reports unfinished background tasks");
   expect(state.delivery.prompts[0]).toContain("This is not its final reply");
   expect(state.delivery.prompts[0]).toContain("Tests are running, I will report when done");
   state.delivery.acknowledgments[0]!.resolve("steered");
   // The subscription stays, and the record says it is following.
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
   const [record] = await state.store.list();
   expect(record?.followingSince).toEqual(expect.any(String));
   expect(state.delivery.prompts).toHaveLength(1);
 
   child.activity.providerBackgroundWork = false;
   state.observation.waits[1]!.result.resolve(reply("All 412 tests passed"));
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[1]).toContain("finished.");
   expect(state.delivery.prompts[1]).toContain("All 412 tests passed");
   expect(state.delivery.prompts[1]).toContain("This finish subscription has ended.");
   expect(state.delivery.prompts[1]).not.toContain("not its final reply");
   state.delivery.acknowledgments[1]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
   expect(state.delivery.prompts).toHaveLength(2);
 });
 
@@ -583,21 +590,21 @@ test("a child that stays idle after its background work ended gets a final notic
     recheckIntervalMs: 5,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   state.observation.waits[0]!.result.resolve(reply("Waiting for the long job"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
   // The job ends without waking the child: no further turn ever comes.
   child.activity.providerBackgroundWork = false;
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[1]).toContain("background work has ended");
   expect(state.delivery.prompts[1]).toContain("did not start a new turn");
   expect(state.delivery.prompts[1]).toContain("Waiting for the long job");
   expect(state.delivery.prompts[1]).toContain("This finish subscription has ended.");
   state.delivery.acknowledgments[1]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
   // The pending observation was never consumed or duplicated by rechecking.
   expect(state.observation.waits).toHaveLength(2);
 });
@@ -609,13 +616,13 @@ test("a recheck stays quiet while the child still has queued messages or is mid-
     recheckIntervalMs: 5,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.queuedMessages = true;
   state.observation.waits[0]!.result.resolve(reply("Queued work ahead"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("has queued messages");
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
   child.activity.queuedMessages = false;
   child.activity.running = true;
   await new Promise((resolve) => setTimeout(resolve, 60));
@@ -630,22 +637,22 @@ test("turns that end while still working are silent after the first not-final no
     recheckIntervalMs: NO_RECHECK,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   state.observation.waits[0]!.result.resolve(reply("Started"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   state.delivery.acknowledgments[0]!.resolve("steered");
   for (let turn = 1; turn <= 3; turn++) {
-    await until(() => state.observation.waits.length === turn + 1);
+    await eventually(() => state.observation.waits.length === turn + 1);
     state.observation.waits[turn]!.result.resolve(reply(`Still going, turn ${turn}`));
   }
-  await until(() => state.observation.waits.length === 5);
+  await eventually(() => state.observation.waits.length === 5);
   expect(state.delivery.prompts).toHaveLength(1);
   expect(await state.store.list()).toHaveLength(1);
 
   child.activity.providerBackgroundWork = false;
   state.observation.waits[4]!.result.resolve(reply("Done at last"));
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[1]).toContain("Done at last");
 });
 
@@ -657,11 +664,11 @@ test("two agents that each wait on the other stop being followed at the limit in
   // a waits on b and b waits on a: each is unsettled only because of the other's subscription.
   await state.service.register({ callerAgentId: "a", childAgentId: "b" });
   await state.service.register({ callerAgentId: "b", childAgentId: "a" });
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
   const waitsOf = (child: string) => state.observation.waits.filter((wait) => wait.child === child);
   waitsOf("b")[0]!.result.resolve(reply("b is waiting on a", "b"));
   waitsOf("a")[0]!.result.resolve(reply("a is waiting on b", "a"));
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[0]).toContain("still has background work");
   expect(state.delivery.prompts[0]).toContain("waiting on 1 delegated agent");
   expect(state.delivery.recipients.slice().sort()).toEqual(["a", "b"]);
@@ -670,24 +677,24 @@ test("two agents that each wait on the other stop being followed at the limit in
 
   // b keeps ending turns without settling; a's subscription on b gives up at the limit.
   for (let turn = 1; turn <= FOLLOW_LIMIT_TURNS; turn++) {
-    await until(() => waitsOf("b").length === turn + 1);
+    await eventually(() => waitsOf("b").length === turn + 1);
     waitsOf("b")[turn]!.result.resolve(reply(`b turn ${turn}`, "b"));
   }
-  await until(() => state.delivery.prompts.length === 3);
+  await eventually(() => state.delivery.prompts.length === 3);
   expect(state.delivery.prompts[2]).toContain("stopped following");
   expect(state.delivery.prompts[2]).toContain("b turn " + FOLLOW_LIMIT_TURNS);
   expect(state.delivery.recipients[2]).toBe("a");
   state.delivery.acknowledgments[2]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(1);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(1);
 
   // With a's subscription gone, b no longer waits on anyone, and a's next turn settles for real.
-  await until(() => waitsOf("a").length === 2);
+  await eventually(() => waitsOf("a").length === 2);
   waitsOf("a")[1]!.result.resolve(reply("a is done", "a"));
-  await until(() => state.delivery.prompts.length === 4);
+  await eventually(() => state.delivery.prompts.length === 4);
   expect(state.delivery.recipients[3]).toBe("b");
   expect(state.delivery.prompts[3]).toContain("This finish subscription has ended.");
   state.delivery.acknowledgments[3]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
   expect(state.delivery.prompts).toHaveLength(4);
 });
 
@@ -700,18 +707,18 @@ test("a child still working after the time limit gets a stopped-following notice
     now: () => now,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   state.observation.waits[0]!.result.resolve(reply("Long job started"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
   now += FOLLOW_LIMIT_MS + 1;
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[1]).toContain("stopped following");
   expect(state.delivery.prompts[1]).toContain("Long job started");
   state.delivery.acknowledgments[1]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
 });
 
 test("restart keeps following without repeating the not-final notice, and the settled turn reports", async () => {
@@ -721,13 +728,13 @@ test("restart keeps following without repeating the not-final notice, and the se
     recheckIntervalMs: NO_RECHECK,
   });
   await first.service.register(intent);
-  await until(() => first.observation.waits.length === 1);
+  await eventually(() => first.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   first.observation.waits[0]!.result.resolve(reply("Started the job"));
-  await until(() => first.delivery.prompts.length === 1);
+  await eventually(() => first.delivery.prompts.length === 1);
   first.delivery.acknowledgments[0]!.resolve("steered");
   await expect
-    .poll(async () => (await first.store.list())[0]?.followingSince)
+    .poll(async () => (await first.store.list())[0]?.followingSince, EVENTUALLY)
     .toEqual(expect.any(String));
   await first.service.close();
 
@@ -735,15 +742,15 @@ test("restart keeps following without repeating the not-final notice, and the se
     childActivity: child.childActivity,
     recheckIntervalMs: NO_RECHECK,
   });
-  await until(() => restarted.observation.waits.length === 1);
+  await eventually(() => restarted.observation.waits.length === 1);
   // The initial snapshot of an idle child that still has work: nothing new to say.
   restarted.observation.waits[0]!.result.resolve(reply("Started the job"));
-  await until(() => restarted.observation.waits.length === 2);
+  await eventually(() => restarted.observation.waits.length === 2);
   expect(restarted.delivery.prompts).toEqual([]);
 
   child.activity.providerBackgroundWork = false;
   restarted.observation.waits[1]!.result.resolve(reply("Job finished"));
-  await until(() => restarted.delivery.prompts.length === 1);
+  await eventually(() => restarted.delivery.prompts.length === 1);
   expect(restarted.delivery.prompts[0]).toContain("Job finished");
   expect(restarted.delivery.prompts[0]).toContain("This finish subscription has ended.");
 });
@@ -755,13 +762,13 @@ test("restart reports a settled child straight away when it was being followed",
     recheckIntervalMs: NO_RECHECK,
   });
   await first.service.register(intent);
-  await until(() => first.observation.waits.length === 1);
+  await eventually(() => first.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   first.observation.waits[0]!.result.resolve(reply("Started the job"));
-  await until(() => first.delivery.prompts.length === 1);
+  await eventually(() => first.delivery.prompts.length === 1);
   first.delivery.acknowledgments[0]!.resolve("steered");
   await expect
-    .poll(async () => (await first.store.list())[0]?.followingSince)
+    .poll(async () => (await first.store.list())[0]?.followingSince, EVENTUALLY)
     .toEqual(expect.any(String));
   await first.service.close();
 
@@ -770,9 +777,9 @@ test("restart reports a settled child straight away when it was being followed",
     childActivity: child.childActivity,
     recheckIntervalMs: NO_RECHECK,
   });
-  await until(() => restarted.observation.waits.length === 1);
+  await eventually(() => restarted.observation.waits.length === 1);
   restarted.observation.waits[0]!.result.resolve(reply("Job finished while the daemon was down"));
-  await until(() => restarted.delivery.prompts.length === 1);
+  await eventually(() => restarted.delivery.prompts.length === 1);
   expect(restarted.delivery.prompts[0]).toContain("Job finished while the daemon was down");
   expect(restarted.delivery.prompts[0]).not.toContain("not its final reply");
 });
@@ -784,23 +791,23 @@ test("a new prompt to the child replaces a subscription that is already followin
     recheckIntervalMs: NO_RECHECK,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   child.activity.providerBackgroundWork = true;
   state.observation.waits[0]!.result.resolve(reply("Started"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await until(() => state.observation.waits.length === 2);
+  await eventually(() => state.observation.waits.length === 2);
 
   const next = await state.service.register(intent, true);
   next.accept();
-  await until(() => state.observation.waits.length === 3);
+  await eventually(() => state.observation.waits.length === 3);
   expect(state.observation.waits[1]!.signal.aborted).toBe(true);
-  await expect.poll(async () => (await state.store.list()).length).toBe(1);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(1);
   expect((await state.store.list())[0]?.followingSince).toBeUndefined();
 
   child.activity.providerBackgroundWork = false;
   state.observation.waits[2]!.result.resolve(reply("Second job done"));
-  await until(() => state.delivery.prompts.length === 2);
+  await eventually(() => state.delivery.prompts.length === 2);
   expect(state.delivery.prompts[1]).toContain("Second job done");
   expect(state.delivery.prompts[1]).toContain("This finish subscription has ended.");
 });
@@ -808,14 +815,14 @@ test("a new prompt to the child replaces a subscription that is already followin
 test("without a way to tell, a finished turn is final exactly as before", async () => {
   const state = await scenario();
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   state.observation.waits[0]!.result.resolve(reply("Done, or so I say"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("finished.");
   expect(state.delivery.prompts[0]).not.toContain("still has background work");
   expect(state.delivery.prompts[0]).not.toContain("This finish subscription has ended.");
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
 });
 
 test("a child on another host is never followed, whatever the local activity says", async () => {
@@ -826,13 +833,13 @@ test("a child on another host is never followed, whatever the local activity say
     recheckIntervalMs: NO_RECHECK,
   });
   await state.service.register({ ...intent, serverId: "remote" });
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   state.observation.waits[0]!.result.resolve(reply("Remote result"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("finished.");
   expect(state.delivery.prompts[0]).not.toContain("still has background work");
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
 });
 
 test("errors end the subscription even while background work is reported", async () => {
@@ -843,11 +850,11 @@ test("errors end the subscription even while background work is reported", async
     recheckIntervalMs: NO_RECHECK,
   });
   await state.service.register(intent);
-  await until(() => state.observation.waits.length === 1);
+  await eventually(() => state.observation.waits.length === 1);
   state.observation.waits[0]!.result.resolve(outcome("error"));
-  await until(() => state.delivery.prompts.length === 1);
+  await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("errored");
   expect(state.delivery.prompts[0]).not.toContain("still has background work");
   state.delivery.acknowledgments[0]!.resolve("steered");
-  await expect.poll(async () => (await state.store.list()).length).toBe(0);
+  await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
 });
