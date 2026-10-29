@@ -504,7 +504,7 @@ describe("PluginService.listChannels", () => {
     await expect(service.listChannels()).resolves.toEqual([
       { id: "chat", label: null, pluginId: "notify", destinations: [] },
     ]);
-    store.patch({ pluginsEnabled: false });
+    await store.patch({ pluginsEnabled: false });
     await expect(service.listChannels()).resolves.toEqual([]);
     expect(listChannels).toHaveBeenCalledTimes(1);
   });
