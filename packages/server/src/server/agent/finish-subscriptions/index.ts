@@ -1,4 +1,4 @@
-import { setTimeout as pause } from "node:timers/promises";
+import { setImmediate as turn, setTimeout as pause } from "node:timers/promises";
 import { HostObservationError } from "../host-operations/index.js";
 import { randomUUID } from "node:crypto";
 import type { Logger } from "pino";
@@ -47,6 +47,11 @@ export interface ChildActivity {
   providerBackgroundWork: boolean;
   /** Messages addressed to it that have not started a turn yet. */
   queuedMessages: boolean;
+  /**
+   * The answer above cannot be trusted: its provider has the probe but did not answer it, or the
+   * runtime that answered is no longer the child's. Not knowing counts as not settled.
+   */
+  uncertain?: "could not read background state" | "runtime changed";
 }
 export interface FinishSubscriptionStore {
   list(): Promise<FinishSubscription[]>;
@@ -66,8 +71,9 @@ interface Dependencies extends FinishObservation {
   callerIsActive(agentId: string): Promise<boolean>;
   /**
    * Without it every ended turn is final. With it, a local child whose turn ended is only final
-   * once nothing here says it will go on by itself. A subscription to a child on another host is
-   * never followed: its activity is not visible from here.
+   * once nothing here says it will go on by itself and nothing about it is unknown: a rejected
+   * call counts as unknown. A subscription to a child on another host is never followed: its
+   * activity is not visible from here.
    */
   childActivity?(childAgentId: string): Promise<ChildActivity>;
   serverId: string;
@@ -104,18 +110,64 @@ interface Following {
   since: number;
   turns: number;
 }
-/** What `deliver` says beyond the child's reason, and how the loop proceeds after it. */
+/** What `deliver` says beyond the child's reason. */
 interface NotificationView {
   reason?: FinishNotificationReason;
   unsettled?: readonly string[];
   limit?: string;
-  repeatsEarlierReply?: boolean;
+  settledQuietly?: "same reply" | "later reply";
   subscriptionEnds?: boolean;
 }
-type Plan =
-  | { kind: "final"; view: NotificationView }
-  | { kind: "notice"; view: NotificationView }
-  | { kind: "quiet" };
+
+/**
+ * Where one subscription stands in telling its caller about one child. Every state holds only
+ * what it needs, and says what comes after it; the main loop in `run` just advances the state.
+ * Two things move a `waiting` state: the observation produced a result, or a followed child was
+ * due for a recheck.
+ */
+type Stage = Waiting | Recording | Delivering | typeof ENDING;
+interface Waiting {
+  kind: "waiting";
+  /** Set once the caller was told the child is still working. Only a followed child is rechecked. */
+  following?: Following;
+  /** The last turn the child ended on, carrying the newest reply it gave. */
+  lastEnded?: FinishObservationResult;
+  /** The reply the caller last received for this child (null: that notice carried none). */
+  told?: string | null;
+}
+/** The follow mark goes to disk, then `next`. */
+interface Recording {
+  kind: "recording";
+  following: Following;
+  next: Stage;
+}
+/** The caller is told. Retried until the notification is acknowledged, then `next`. */
+interface Delivering {
+  kind: "delivering";
+  result: FinishObservationResult;
+  view: NotificationView;
+  next: Stage;
+}
+/** The caller has been told everything: only the record is left to remove. */
+const ENDING = { kind: "ending" } as const;
+type FollowEvent = { kind: "result"; result: FinishObservationResult } | { kind: "recheck" };
+/** Stands in for the last turn when a recovered subscription has observed none yet. */
+const NOTHING_OBSERVED: FinishObservationResult = {
+  status: "idle",
+  final: null,
+  lastMessage: null,
+  error: null,
+};
+const UNREADABLE: NonNullable<ChildActivity["uncertain"]> = "could not read background state";
+
+function tell(result: FinishObservationResult, view: NotificationView, next: Stage): Delivering {
+  return { kind: "delivering", result, view, next };
+}
+function limitReached(following: Following, now: number): string | undefined {
+  if (now - following.since >= FOLLOW_LIMIT_MS) return "24 hours";
+  if (following.turns >= FOLLOW_LIMIT_TURNS) return `${FOLLOW_LIMIT_TURNS} more turns`;
+  return undefined;
+}
 function key(record: FinishSubscription): string {
   return JSON.stringify([record.callerAgentId, record.childAgentId, record.serverId]);
 }
@@ -234,22 +286,24 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       for (const watch of group) if (watch.records[0]!.callerAgentId === agentId) count++;
     return Math.max(count, registering.has(agentId) ? 1 : 0);
   }
-  /** Empty when nothing says the child will go on by itself. */
+  /** Empty only when nothing says the child will go on by itself, and nothing is left unknown. */
   async function unsettledReasons(childAgentId: string): Promise<string[]> {
+    const reasons: string[] = [];
+    const delegated = delegatedBy(childAgentId);
+    if (delegated) reasons.push(`waiting on ${plural(delegated, "delegated agent")}`);
     let activity: ChildActivity | undefined;
     try {
       activity = await deps.childActivity?.(childAgentId);
     } catch (error) {
-      // No answer is the same as a provider with no opinion: do not hold the notification back.
+      // Not knowing is not the same as nothing pending: stay subscribed and ask again.
       deps.logger.warn({ err: error, childAgentId }, "Could not tell whether the child settled");
+      reasons.push(UNREADABLE);
     }
-    const reasons: string[] = [];
-    const delegated = delegatedBy(childAgentId);
-    if (delegated) reasons.push(`waiting on ${plural(delegated, "delegated agent")}`);
     if (activity?.providerBackgroundWork)
       reasons.push("provider reports unfinished background tasks");
     if (activity?.queuedMessages) reasons.push("has queued messages");
     if (activity?.running) reasons.push("started another turn");
+    if (activity?.uncertain) reasons.push(activity.uncertain);
     return reasons;
   }
   function persistFollowing(watch: Watch, state: Following): Promise<void> {
@@ -267,12 +321,13 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       }
     });
   }
+  /** True once every notification was acknowledged; false if the watch ended first. */
   async function deliver(
     record: FinishSubscription,
     result: FinishObservationResult,
     permissions: Set<string>,
     signal: AbortSignal,
-    view: NotificationView = {},
+    view: NotificationView,
   ): Promise<boolean> {
     const requests = result.final?.pendingPermissions ?? [];
     const reason = view.reason ?? reasonFor(result);
@@ -294,7 +349,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
           permissionRequest: request,
           unsettled: view.unsettled,
           limit: view.limit,
-          repeatsEarlierReply: view.repeatsEarlierReply,
+          settledQuietly: view.settledQuietly,
           subscriptionEnds: view.subscriptionEnds,
         }),
         source: {
@@ -315,9 +370,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       );
     }
     await abortable(Promise.all(acknowledgments), signal);
-    if (signal.aborted) return false;
-    // A permission request or a not-final notice leaves the subscription in place.
-    return reason !== "needs permission" && reason !== "is still working";
+    return !signal.aborted;
   }
   async function run(watch: Watch, group: Set<Watch>): Promise<void> {
     const signal = watch.controller.signal;
@@ -329,23 +382,16 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       ),
     };
     const permissions = new Set<string>();
+    const now = deps.now ?? Date.now;
+    // Only a child on this host whose activity is known can be followed past an ended turn.
+    const canFollow = deps.childActivity !== undefined && !record.serverId;
     let observation: FinishObservationSession | undefined;
-    let pending: FinishObservationResult | undefined;
-    let acknowledged = false;
+    // One observation stays outstanding between events, so a result that lands while the
+    // subscription is busy with something else is still there for the next pass.
+    let inflight: Promise<FinishObservationResult | undefined> | undefined;
     let remoteFailures = 0;
     let retries = 0;
     let warned = false;
-    // Only a child on this host whose activity is known can be followed past an ended turn.
-    const canFollow = deps.childActivity !== undefined && !record.serverId;
-    let following = canFollow ? restoreFollowing(watch.records) : undefined;
-    // The not-final notice was acknowledged; recording that is retried without telling again.
-    let beginning: Following | undefined;
-    // A plan made by a recheck, for the result it synthesized from the last observed turn.
-    let planned: Plan | undefined;
-    let lastObserved: FinishObservationResult | undefined;
-    let lastReply: string | null = null;
-    let inflight: Promise<FinishObservationResult | undefined> | undefined;
-    const now = deps.now ?? Date.now;
     async function observeNext(): Promise<FinishObservationResult | undefined> {
       try {
         observation ??= await deps.open(record, signal);
@@ -369,133 +415,155 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
         };
       }
     }
-    /** While following, wake up now and then: the child may settle without another turn. */
-    async function observeOrRecheck(): Promise<
-      FinishObservationResult | undefined | typeof RECHECK
-    > {
-      if (!following) return observeNext();
-      // One observation stays in flight across wake-ups, so a result that arrives while a recheck
-      // runs is still there for the next pass instead of being consumed unseen.
+    /**
+     * The next thing that happens to the subscription: the observation produced a result, or,
+     * for a followed child, it is time to look again. undefined: nothing could be observed.
+     */
+    async function nextEvent(followed: boolean): Promise<FollowEvent | undefined> {
       inflight ??= observeNext();
       const timer = new AbortController();
-      let outcome: FinishObservationResult | undefined | typeof RECHECK;
       try {
-        outcome = await Promise.race([
+        const outcome = await Promise.race([
           inflight,
-          pause<typeof RECHECK>(deps.recheckIntervalMs ?? RECHECK_INTERVAL_MS, RECHECK, {
-            signal: AbortSignal.any([signal, timer.signal]),
-          }),
+          ...(followed
+            ? [
+                pause<typeof RECHECK>(deps.recheckIntervalMs ?? RECHECK_INTERVAL_MS, RECHECK, {
+                  signal: AbortSignal.any([signal, timer.signal]),
+                }),
+              ]
+            : []),
         ]);
+        if (outcome === RECHECK) return { kind: "recheck" };
+        inflight = undefined;
+        return outcome ? { kind: "result", result: outcome } : undefined;
       } catch (error) {
         inflight = undefined;
         throw error;
       } finally {
         timer.abort();
       }
-      if (outcome !== RECHECK) inflight = undefined;
-      return outcome;
     }
-    function limitReached(turns: number): string | undefined {
-      if (!following) return undefined;
-      if (now() - following.since >= FOLLOW_LIMIT_MS) return "24 hours";
-      if (turns >= FOLLOW_LIMIT_TURNS) return `${FOLLOW_LIMIT_TURNS} more turns`;
-      return undefined;
+    /**
+     * Whether the observation already has something the caller has not been told: a result, or a
+     * failure. A recheck must never talk over it. The event loop turns once first, so that whatever
+     * is already on its way in has arrived.
+     */
+    async function observationHasNews(): Promise<boolean> {
+      if (!inflight) return false;
+      const arrived = inflight.then(
+        () => true,
+        () => true,
+      );
+      return Promise.race([arrived, turn().then(() => false)]);
     }
-    function stoppedFollowing(limit: string): Plan {
-      return { kind: "final", view: { reason: "stopped following", limit } };
+    /**
+     * Before anything is told or recorded: wait out re-prompts whose dispatch is undecided, and
+     * check that the caller still wants to hear. A stage is returned when the answer is no.
+     */
+    async function holdOff(
+      result: FinishObservationResult,
+      waiting: Waiting,
+    ): Promise<Stage | undefined> {
+      await decisions(group);
+      if (signal.aborted) return waiting;
+      return (await suppressed(record, result)) ? ENDING : undefined;
     }
-    /** The idle child may have settled, or run out of time, since it last ended a turn. */
-    async function recheck(): Promise<void> {
-      if (!following || !lastObserved) return;
+    /** Event: the child ended a turn, or something else happened to it. */
+    async function onResult(waiting: Waiting, result: FinishObservationResult): Promise<Stage> {
+      const held = await holdOff(result, waiting);
+      if (held) return held;
+      const reason = reasonFor(result);
+      if (!canFollow || reason !== "finished") {
+        // Told as it is. A permission request leaves the subscription waiting for the next result.
+        return tell(result, {}, reason === "needs permission" ? waiting : ENDING);
+      }
       const unsettled = await unsettledReasons(record.childAgentId);
-      const limit = limitReached(following.turns);
-      if (unsettled.length && !limit) return;
-      planned = unsettled.length
-        ? stoppedFollowing(limit!)
-        : { kind: "final", view: { repeatsEarlierReply: true, subscriptionEnds: true } };
-      pending = { ...lastObserved, lastMessage: lastReply };
-    }
-    async function plan(result: FinishObservationResult): Promise<Plan> {
-      if (planned) return planned;
-      if (!canFollow || reasonFor(result) !== "finished") return { kind: "final", view: {} };
-      lastObserved = result;
-      lastReply = result.lastMessage ?? lastReply;
-      const unsettled = await unsettledReasons(record.childAgentId);
-      if (!unsettled.length) return { kind: "final", view: { subscriptionEnds: true } };
-      if (!following) return { kind: "notice", view: { reason: "is still working", unsettled } };
-      const limit = limitReached(following.turns + 1);
-      return limit ? stoppedFollowing(limit) : { kind: "quiet" };
-    }
-    function next(): void {
-      pending = undefined;
-      planned = undefined;
-      retries = 0;
-      warned = false;
-    }
-    async function end(): Promise<void> {
-      await remove(watch);
-      stop(watch, group);
-    }
-    async function acquire(): Promise<FinishObservationResult | undefined> {
-      const observed = await observeOrRecheck();
-      if (observed === RECHECK) {
-        await recheck();
-        return pending;
+      if (!unsettled.length) return tell(result, { subscriptionEnds: true }, ENDING);
+      const lastEnded = {
+        ...result,
+        lastMessage: result.lastMessage ?? waiting.lastEnded?.lastMessage ?? null,
+      };
+      const { following } = waiting;
+      if (!following) {
+        // The mark goes to disk before the caller is told, so a restart in between loses only this
+        // notice, never the final reply, and never starts the 24 hours over. The other order would
+        // repeat the notice after a restart and reset the limit.
+        const begun = { since: now(), turns: 0 };
+        const next: Waiting = {
+          kind: "waiting",
+          following: begun,
+          lastEnded,
+          told: result.lastMessage,
+        };
+        const notice = tell(result, { reason: "is still working", unsettled }, next);
+        return { kind: "recording", following: begun, next: notice };
       }
-      pending = observed;
-      if (!pending) await delay(signal, retries++);
-      return pending;
+      const turned = { since: following.since, turns: following.turns + 1 };
+      const limit = limitReached(turned, now());
+      if (limit) return tell(lastEnded, { reason: "stopped following", limit }, ENDING);
+      const next: Waiting = { kind: "waiting", following: turned, lastEnded, told: waiting.told };
+      return { kind: "recording", following: turned, next };
     }
-    /** One pass over the result the child ended on. True once the subscription has ended. */
-    async function handle(result: FinishObservationResult): Promise<boolean> {
-      if (beginning) {
-        await persistFollowing(watch, beginning);
-        following = beginning;
-        beginning = undefined;
-        next();
-        return false;
-      }
-      if (!acknowledged) {
-        const step = await plan(result);
-        if (step.kind === "quiet") {
-          const turned = { since: following!.since, turns: following!.turns + 1 };
-          await persistFollowing(watch, turned);
-          following = turned;
-          next();
-          return false;
+    /**
+     * Event: a followed child is due for a look. Its background work may end without waking it,
+     * and then no turn ends that would say so. The limits do not depend on anything having been
+     * observed, which is what keeps a recovered subscription from being followed forever.
+     */
+    async function onRecheck(waiting: Waiting): Promise<Stage> {
+      const { following } = waiting;
+      if (!following) return waiting;
+      const limit = limitReached(following, now());
+      if (!limit && (await unsettledReasons(record.childAgentId)).length) return waiting;
+      const ended = waiting.lastEnded ?? NOTHING_OBSERVED;
+      const held = await holdOff(ended, waiting);
+      if (held) return held;
+      if (limit) return tell(ended, { reason: "stopped following", limit }, ENDING);
+      // The probe took a while. If the child ended a real turn meanwhile, that result is the news.
+      if (await observationHasNews()) return waiting;
+      const repeats = ended.lastMessage !== null && ended.lastMessage === waiting.told;
+      const settledQuietly = repeats ? "same reply" : "later reply";
+      return tell(ended, { reason: "finished", settledQuietly, subscriptionEnds: true }, ENDING);
+    }
+    async function advance(stage: Waiting | Recording | Delivering): Promise<Stage> {
+      switch (stage.kind) {
+        case "waiting": {
+          const event = await nextEvent(stage.following !== undefined);
+          if (!event) {
+            await delay(signal, retries++);
+            return stage;
+          }
+          return event.kind === "result" ? onResult(stage, event.result) : onRecheck(stage);
         }
-        const ended = await deliver(record, result, permissions, signal, step.view);
-        if (step.kind === "notice") {
-          if (!signal.aborted) beginning = { since: now(), turns: 0 };
-          return false;
-        }
-        acknowledged = ended;
+        case "recording":
+          await persistFollowing(watch, stage.following);
+          return stage.next;
+        case "delivering":
+          // A delivery failure keeps the captured outcome and tries again; it never re-decides.
+          return (await deliver(record, stage.result, permissions, signal, stage.view))
+            ? stage.next
+            : stage;
       }
-      if (!acknowledged) {
-        next();
-        return false;
-      }
-      // A removal failure retries only the commit, never the already accepted callback.
-      await end();
-      return true;
     }
     try {
+      let stage: Stage = {
+        kind: "waiting",
+        following: canFollow ? restoreFollowing(watch.records) : undefined,
+      };
       while (!signal.aborted) {
         try {
-          if (await suppressed(record)) {
-            await end();
+          if (stage.kind === "ending" || (await suppressed(record))) {
+            // Everything was told, or nobody is left to tell. A removal that fails is retried
+            // here alone, never the accepted notification.
+            await remove(watch);
+            stop(watch, group);
             return;
           }
-          const result = pending ?? (await acquire());
-          if (!result) continue;
-          if (signal.aborted) return;
-          await decisions(group);
-          if (signal.aborted) return;
-          if (await suppressed(record, result)) {
-            await end();
-            return;
+          const next = await advance(stage);
+          if (next !== stage) {
+            retries = 0;
+            warned = false;
           }
-          if (await handle(result)) return;
+          stage = next;
         } catch (error) {
           if (signal.aborted) return;
           // Delivery and storage failures retain the captured outcome and durable intent.

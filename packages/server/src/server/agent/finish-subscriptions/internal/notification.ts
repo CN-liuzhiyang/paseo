@@ -40,8 +40,11 @@ interface FinishNotificationBodyInput {
   unsettled?: readonly string[];
   /** What ended the subscription, for `stopped following`. */
   limit?: string;
-  /** The child never started another turn: this repeats the reply the caller already received. */
-  repeatsEarlierReply?: boolean;
+  /**
+   * The child's background work ended without it starting another turn. "same reply": the reply
+   * below is the one the caller already received; "later reply": it is one the caller never saw.
+   */
+  settledQuietly?: "same reply" | "later reply";
   /** Settled final of a child that the subscription was prepared to keep following. */
   subscriptionEnds?: boolean;
 }
@@ -54,12 +57,22 @@ function statusLineFor(params: FinishNotificationBodyInput): string {
     const why = params.unsettled?.length ? ` (${params.unsettled.join("; ")})` : "";
     return `${subject} ended its turn but still has background work${why}. This is not its final reply. You stay subscribed and will be notified when it settles.`;
   }
+  const hasReply = Boolean(params.lastAssistantMessage?.trim());
+  const noReply = "No reply was recorded for it; use get_agent_activity to see what it did.";
   if (params.reason === "stopped following") {
-    return `${subject} still reports background work after ${params.limit}, so this subscription stopped following it. ${SUBSCRIPTION_ENDED} Use get_agent_activity to check on it. Its last reply is below.`;
+    const ended = `${subject} had not settled after ${params.limit}, so this subscription stopped following it. ${SUBSCRIPTION_ENDED}`;
+    return hasReply
+      ? `${ended} Use get_agent_activity to check on it. Its last reply is below.`
+      : `${ended} ${noReply}`;
   }
   const statusLine = `${subject} ${params.reason}.`;
-  if (!params.repeatsEarlierReply) return statusLine;
-  return `${statusLine} Its background work has ended and it did not start a new turn, so the reply you already received (marked "not its final reply") is its last reply. It is repeated below.`;
+  if (!params.settledQuietly) return statusLine;
+  const settled = `${statusLine} Its background work has ended and it did not start a new turn`;
+  if (!hasReply) return `${settled}. ${noReply}`;
+  if (params.settledQuietly === "same reply") {
+    return `${settled}, so the reply you already received (marked "not its final reply") is its last reply. It is repeated below.`;
+  }
+  return `${settled}. Its last reply, which you have not received yet, is below.`;
 }
 
 export function formatFinishNotificationBody(params: FinishNotificationBodyInput): string {

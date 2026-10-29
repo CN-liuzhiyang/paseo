@@ -9,6 +9,7 @@ import type { AgentMessageDelivery } from "../agent-messages/index.js";
 import { buildStoredAgentPayload } from "../agent-projections.js";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import {
+  createChildActivity,
   createFinishSubscriptions,
   createJsonFinishSubscriptionStore,
   FOLLOW_LIMIT_MS,
@@ -857,4 +858,163 @@ test("errors end the subscription even while background work is reported", async
   expect(state.delivery.prompts[0]).not.toContain("still has background work");
   state.delivery.acknowledgments[0]!.resolve("steered");
   await expect.poll(async () => (await state.store.list()).length, EVENTUALLY).toBe(0);
+});
+
+// --- What the review of the first round found ---
+
+test("a terminal result that arrives while a recheck is probing supplies the final reply", async () => {
+  const probe = deferred<ChildActivity>();
+  let calls = 0;
+  const state = await scenario(undefined, 0, 1, {
+    childActivity: async () => {
+      calls++;
+      return calls === 1 ? { ...SETTLED, providerBackgroundWork: true } : probe.promise;
+    },
+    recheckIntervalMs: 5,
+  });
+  await state.service.register(intent);
+  await eventually(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(reply("INTERMEDIATE: tests running"));
+  await eventually(() => state.delivery.prompts.length === 1);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await eventually(() => calls === 2);
+  // The child ends its real turn while the recheck is still asking, and then the probe says settled.
+  state.observation.waits[1]!.result.resolve(reply("FINAL: all tests passed"));
+  probe.resolve({ ...SETTLED });
+  await eventually(() => state.delivery.prompts.length === 2);
+  expect(state.delivery.prompts[1]).toContain("finished.");
+  expect(state.delivery.prompts[1]).toContain("FINAL: all tests passed");
+  expect(state.delivery.prompts[1]).not.toContain("INTERMEDIATE");
+  expect(state.delivery.prompts[1]).not.toContain("did not start a new turn");
+});
+
+test("a background probe that fails keeps the subscription alive instead of calling the child settled", async () => {
+  const idleChild = {
+    lifecycle: "idle",
+    session: {
+      canStopRuntime: async () => {
+        throw new Error("background inventory temporarily unavailable");
+      },
+    },
+  };
+  const childActivity = createChildActivity({
+    agentManager: { getAgent: () => idleChild as never },
+    messages: () => ({ hasPending: () => false }) as unknown as AgentMessageDelivery,
+    logger: createTestLogger(),
+  });
+  const state = await scenario(undefined, 0, 1, { childActivity, recheckIntervalMs: NO_RECHECK });
+  await state.service.register(intent);
+  await eventually(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(reply("INTERMEDIATE: background job pending"));
+  await eventually(() => state.delivery.prompts.length === 1);
+  expect(state.delivery.prompts[0]).toContain("This is not its final reply");
+  expect(state.delivery.prompts[0]).toContain("could not read background state");
+  expect(state.delivery.prompts[0]).not.toContain("This finish subscription has ended.");
+});
+
+test("an activity check that throws outright is not read as a settled child", async () => {
+  const state = await scenario(undefined, 0, 1, {
+    childActivity: async () => {
+      throw new Error("activity unavailable");
+    },
+    recheckIntervalMs: NO_RECHECK,
+  });
+  await state.service.register(intent);
+  await eventually(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(reply("Partial"));
+  await eventually(() => state.delivery.prompts.length === 1);
+  expect(state.delivery.prompts[0]).toContain("This is not its final reply");
+  expect(state.delivery.prompts[0]).toContain("could not read background state");
+});
+
+test("a recovered follow enforces its time limit without waiting for another terminal event", async () => {
+  const now = Date.parse("2026-10-29T00:00:00Z");
+  const first = await scenario();
+  await first.store.put({
+    ...intent,
+    id: "expired",
+    followingSince: new Date(now - FOLLOW_LIMIT_MS - 1).toISOString(),
+    followedTurns: 12,
+  });
+  await first.service.close();
+  const restarted = await scenario(first.home, 0, 1, {
+    childActivity: async () => ({ ...SETTLED, running: true }),
+    recheckIntervalMs: 5,
+    now: () => now,
+  });
+  // The child never reports anything: only the clock can end this.
+  await eventually(() => restarted.observation.waits.length === 1);
+  await eventually(() => restarted.delivery.prompts.length === 1);
+  expect(restarted.delivery.prompts[0]).toContain("stopped following");
+  expect(restarted.delivery.prompts[0]).toContain("No reply was recorded");
+  expect(restarted.delivery.prompts[0]).toContain("get_agent_activity");
+  expect(restarted.delivery.prompts[0]).not.toContain("<agent-response>");
+  restarted.delivery.acknowledgments[0]!.resolve("steered");
+  await expect.poll(async () => (await restarted.store.list()).length, EVENTUALLY).toBe(0);
+});
+
+test("a restart after the not-final notice went out neither repeats it nor restarts the time limit", async () => {
+  const extra = {
+    childActivity: async () => ({ ...SETTLED, providerBackgroundWork: true }),
+    recheckIntervalMs: NO_RECHECK,
+  };
+  const first = await scenario(undefined, 0, 5000, extra);
+  const put = first.store.put.bind(first.store);
+  const marking = deferred<void>();
+  let marks = 0;
+  first.store.put = async (record) => {
+    if (record.followingSince) {
+      marks++;
+      await marking.promise;
+    }
+    return put(record);
+  };
+  await first.service.register(intent);
+  await eventually(() => first.observation.waits.length === 1);
+  first.observation.waits[0]!.result.resolve(reply("INTERMEDIATE"));
+  // The mark goes to disk before the caller is told anything.
+  await eventually(() => marks === 1 || first.delivery.prompts.length > 0);
+  expect(first.delivery.prompts).toHaveLength(0);
+  marking.resolve();
+  await eventually(() => first.delivery.prompts.length === 1);
+  const [marked] = await first.store.list();
+  expect(marked?.followingSince).toEqual(expect.any(String));
+  // Shut down before the caller's acknowledgment arrives.
+  await first.service.close();
+
+  const restarted = await scenario(first.home, 0, 1, extra);
+  await eventually(() => restarted.observation.waits.length === 1);
+  restarted.observation.waits[0]!.result.resolve(reply("INTERMEDIATE"));
+  await eventually(() => restarted.observation.waits.length === 2);
+  expect(restarted.delivery.prompts).toEqual([]);
+  await expect
+    .poll(async () => (await restarted.store.list())[0]?.followedTurns, EVENTUALLY)
+    .toBe(1);
+  expect((await restarted.store.list())[0]?.followingSince).toBe(marked?.followingSince);
+});
+
+test('a recheck final does not call a reply "already received" when the caller never got it', async () => {
+  const child = childWithActivity();
+  const state = await scenario(undefined, 0, 1, {
+    childActivity: child.childActivity,
+    recheckIntervalMs: 5,
+  });
+  await state.service.register(intent);
+  await eventually(() => state.observation.waits.length === 1);
+  child.activity.providerBackgroundWork = true;
+  state.observation.waits[0]!.result.resolve(reply("Reply A"));
+  await eventually(() => state.delivery.prompts.length === 1);
+  expect(state.delivery.prompts[0]).toContain("Reply A");
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  await eventually(() => state.observation.waits.length === 2);
+  // Another turn ends while the job still runs: silent, so the caller never sees B.
+  state.observation.waits[1]!.result.resolve(reply("Reply B"));
+  await eventually(() => state.observation.waits.length === 3);
+  expect(state.delivery.prompts).toHaveLength(1);
+  child.activity.providerBackgroundWork = false;
+  await eventually(() => state.delivery.prompts.length === 2);
+  expect(state.delivery.prompts[1]).toContain("background work has ended");
+  expect(state.delivery.prompts[1]).toContain("Reply B");
+  expect(state.delivery.prompts[1]).not.toContain("you already received");
+  expect(state.delivery.prompts[1]).toContain("This finish subscription has ended.");
 });
