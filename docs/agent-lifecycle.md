@@ -139,9 +139,21 @@ caller, child, and host into one watch.
 
 Bootstrap restores these watches after repairing stale running records to `closed` and before opening
 ingress. Reading a closed child's result does not load its provider. A finish notification reports that
-the child's run has settled; the parent decides whether its task is complete. Recovery never resumes
+the child has stopped; the parent decides whether its task is complete. Recovery never resumes
 child work. Archived or deleted parents suppress delivery; parent-owned creation watches also stop
 reporting after detachment.
+
+A turn ending is not the child stopping. A local child's turn can end while something will still wake
+it: provider background work (`canStopRuntime()` is false), messages queued for it, or finish
+subscriptions it holds on its own delegates. Then the watch sends one notice that says the reply is
+not final, keeps its record, and writes `followingSince`. Later unsettled turns are silent. The
+notification for the first turn after which nothing is pending is final and ends the watch. An idle
+child is rechecked every 10 seconds because background work can end without waking it; if so, the
+final notification says the earlier reply is the last one. After 24 hours, or 50 more turns, the watch
+ends with a "stopped following" notice instead. That limit is what ends two agents that each wait on
+the other. A provider without `canStopRuntime()` and a child with no live runtime count as stopped,
+and children on other hosts are never followed. Recovery resumes following from `followingSince`
+without repeating the notice. The notice reuses the `message` event, which every client already parses.
 
 Intent remains stored until the parent's notification dispatch is acknowledged. Dispatch failure
 retries the captured notification; it does not change the child's reported outcome. Remote host loss

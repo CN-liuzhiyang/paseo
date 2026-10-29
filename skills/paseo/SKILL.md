@@ -127,7 +127,7 @@ Schedules have the full list/inspect/update/pause/resume/run-once/log/delete sur
 
 ## Waiting
 
-When you create or prompt a subagent, `notifyOnFinish` defaults to `true` and reports completion, errors, or permission requests, including across hosts.
+When you create or prompt a subagent, `notifyOnFinish` defaults to `true` and reports completion, errors, or permission requests, including across hosts. A notification that says the reply is not final means the subagent ended a turn with background work or delegated agents still pending; keep waiting, the final notification follows.
 Finish your turn and wait for that notification instead of polling.
 If you want an explicit reply with `send_agent_prompt`, have the sender check `list_hosts` for the recipient’s server before setting `notifyOnFinish: false`.
 
