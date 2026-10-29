@@ -9,6 +9,37 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.5.0 - 2026-10-29
+
+Carries upstream v0.14.0-beta.2, up from v0.12.0. This is an upstream beta. The full upstream notes are in
+[CHANGELOG.md](CHANGELOG.md) under 0.13.0 through 0.14.0-beta.2.
+
+### Before upgrading
+
+- Back up `~/.paseo/config.json`. Going back to 1.4.x needs the old file, because the beta rewrites speech and idle-cleanup settings.
+- Voice mode is now off by default; turn it on in Voice settings. OpenAI speech keys stored only under `providers.openai` move to Voice settings.
+- `agent.turn_ended` hooks now get an empty `timeline` (since upstream 0.13). A plugin that reads the agent's answer from it must fetch the tail with `timeline.refetch` instead.
+- A relay connection now needs the daemon password when the daemon has one. Re-add relay hosts saved without it.
+- An agent idle for an hour has its runtime released. The conversation is kept and resumes on the next prompt. Turn this off per host in Settings.
+
+### Fixed
+
+- A parent agent now gets the real result when a child ends its turn while it still has work going on: a background command, a Monitor, a background agent, or an agent it delegated to. Before, the parent got one `finished` with the child's "waiting" text and never heard the real answer. Now:
+  - The parent first gets a notice that says the turn ended with work still pending and that this is not the final reply.
+  - When the child has really stopped, the parent gets the final reply, and the subscription ends.
+  - The daemon decides whether the child has stopped from the provider's own report (`canStopRuntime`), the child's own pending delegations, and its queued messages. No model guesses.
+  - A child that is never seen to stop is followed for at most 24 hours or 50 turns.
+  - Providers that cannot report their background work, and children on other hosts, get one notification as before.
+  - Proposed upstream in getpaseo/paseo#6346.
+
+### From upstream
+
+- Connected hosts: agents can create, prompt and watch agents on other machines (`paseo host add`).
+- Plugins can give tools to specific agents, add MCP servers when a session opens, open files in their own file panels, and translate their UI.
+- Completed turns can be collapsed into summaries. Local speech models, including SenseVoice and Whisper for Chinese dictation, can be downloaded from Voice settings.
+- After a daemon restart, finish notifications are restored, and agents no longer show as running.
+- Opening or importing large Claude histories no longer stalls the daemon. The daemon also stalls less during plugin builds, large diffs and workspace refreshes.
+
 ## 1.4.2 - 2026-10-23
 
 Carries upstream v0.12.0, the same base as 1.4.1.
