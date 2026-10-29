@@ -1242,7 +1242,7 @@ function createToolCatalog(
       .optional()
       .default(true)
       .describe(
-        "Get notified when the created agent finishes, errors, or needs permission. Set false for explicit reporting or no completion callback.",
+        "Get notified when the created agent finishes, errors, or needs permission. If it ends a turn while background work or delegated agents are still pending, you get one notice marked not final, then the final notification once it has settled. Set false for explicit reporting or no completion callback.",
       ),
   };
   const canonicalTopLevelInputSchema = {
@@ -1252,7 +1252,7 @@ function createToolCatalog(
       .optional()
       .default(false)
       .describe(
-        "Agent-scoped only: get notified when the created agent finishes, errors, or needs permission.",
+        "Agent-scoped only: get notified when the created agent finishes, errors, or needs permission. If it ends a turn while background work or delegated agents are still pending, you get one notice marked not final, then the final notification once it has settled.",
       ),
   };
   const legacyAgentToAgentInputSchema = {

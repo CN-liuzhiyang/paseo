@@ -11,6 +11,8 @@ const recordsSchema = z.array(
     childAgentId: z.string().min(1),
     serverId: z.string().min(1).optional(),
     requireParentOwnership: z.boolean().optional(),
+    followingSince: z.string().min(1).optional(),
+    followedTurns: z.number().int().nonnegative().optional(),
   }),
 );
 

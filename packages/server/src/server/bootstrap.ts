@@ -2,6 +2,7 @@ import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js"
 import {
   createFinishSubscriptions,
   createFinishObservation,
+  createChildActivity,
   createJsonFinishSubscriptionStore,
 } from "./agent/finish-subscriptions/index.js";
 import { createWorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
@@ -1466,6 +1467,14 @@ export async function createPaseoDaemon(
       const record = await agentStorage.get(agentId);
       return record ? !record.archivedAt : Boolean(agentManager.getAgent(agentId));
     },
+    childActivity: createChildActivity({
+      agentManager,
+      logger,
+      messages: () => {
+        if (!wsServer) throw new Error("Daemon is not accepting agent messages");
+        return wsServer.agentMessages;
+      },
+    }),
     ...createFinishObservation({
       agentManager,
       agentStorage,

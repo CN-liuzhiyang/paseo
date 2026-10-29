@@ -344,6 +344,13 @@ queued completion reports, or pending autonomous replies. This query must not st
 session. Return `false` while work remains. A rejected query, invalid response, or timeout also
 keeps the runtime alive. Never respond with `request.completed` for this query.
 
+Paseo asks the same query when a child's turn ends, to decide whether the finish notification to
+its caller is final. While it returns `false`, the caller gets one notice marked not final, and the
+final notification waits until it returns `true`. As in cleanup, a rejected query or a timeout is
+not an answer: the child counts as not settled, the notice says Paseo could not read its background
+state, and Paseo asks again until the query answers or the follow limit ends the subscription. Only
+a provider without the query counts as settled.
+
 Paseo always checks foreground work, permissions, queued deliveries, lifecycle operations,
 working managed/native descendants, and outstanding local or remote finish subscriptions for the
 caller. Subscription protection lasts through registration, recovery and notification dispatch

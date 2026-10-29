@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { createAgentMessageDelivery, parseAgentMessages } from "./index.js";
+import {
+  createAgentMessageDelivery,
+  formatAgentMessage,
+  parseAgentMessage,
+  parseAgentMessages,
+  projectAgentMessages,
+} from "./index.js";
 import type { AgentPromptInput } from "../agent-sdk-types.js";
 
 function createClock() {
@@ -312,4 +318,31 @@ test("runtime safety sees queued messages until provider dispatch settles", asyn
   release();
   await delivery.close();
   expect(delivery.hasPending("parent")).toBe(false);
+});
+
+test("a notification with event message round-trips through the envelope and projects to a message", () => {
+  const source = {
+    kind: "agent-notification",
+    agentId: "worker",
+    title: "Worker",
+    event: "message",
+  } as const;
+  const text = formatAgentMessage({ id: "notice", source, text: "Still has background work" });
+  expect(text).toContain('event="message"');
+  expect(parseAgentMessage(text)).toEqual({
+    id: "notice",
+    source,
+    text: "Still has background work",
+  });
+  expect(projectAgentMessages({ type: "user_message", text })).toEqual([
+    expect.objectContaining({
+      type: "tool_call",
+      callId: "paseo-agent-message:notice",
+      agentMessage: {
+        event: "message",
+        sender: { id: "worker", title: "Worker" },
+        text: "Still has background work",
+      },
+    }),
+  ]);
 });
