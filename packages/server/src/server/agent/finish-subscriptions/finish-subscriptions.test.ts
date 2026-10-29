@@ -7,6 +7,7 @@ import { afterEach, expect, test } from "vitest";
 import type { WaitForFinishResult } from "@getpaseo/client/internal/daemon-client";
 import type { AgentMessageDelivery } from "../agent-messages/index.js";
 import { buildStoredAgentPayload } from "../agent-projections.js";
+import pino from "pino";
 import { createTestLogger } from "../../../test-utils/test-logger.js";
 import {
   createChildActivity,
@@ -80,7 +81,7 @@ afterEach(async () => {
 type ExtraDependencies = Partial<
   Pick<
     Parameters<typeof createFinishSubscriptions>[0],
-    "childActivity" | "recheckIntervalMs" | "now"
+    "childActivity" | "recheckIntervalMs" | "now" | "logger"
   >
 >;
 async function scenario(
@@ -475,13 +476,13 @@ test("remote finish intent protects its caller through registration, observation
   expect((await cleanup.sweep()).collected).toEqual([]);
   expect(s.service.hasPendingForCaller("parent")).toBe(true);
   accepted.accept();
-  await until(() => s.observation.waits.length === 1);
+  await eventually(() => s.observation.waits.length === 1);
   expect(s.service.hasPendingForCaller("parent")).toBe(true);
   s.observation.waits[0]!.result.resolve(outcome());
-  await until(() => s.delivery.prompts.length === 1);
+  await eventually(() => s.delivery.prompts.length === 1);
   expect(s.service.hasPendingForCaller("parent")).toBe(true);
   s.delivery.acknowledgments[0]!.resolve("steered");
-  await until(() => !s.service.hasPendingForCaller("parent"));
+  await eventually(() => !s.service.hasPendingForCaller("parent"));
   expect(await s.store.list()).toEqual([]);
   time = 62 * 60_000;
   expect((await cleanup.sweep()).collected).toEqual([]);
@@ -908,7 +909,7 @@ test("a background probe that fails keeps the subscription alive instead of call
   state.observation.waits[0]!.result.resolve(reply("INTERMEDIATE: background job pending"));
   await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("This is not its final reply");
-  expect(state.delivery.prompts[0]).toContain("could not read background state");
+  expect(state.delivery.prompts[0]).toContain("its background state could not be read");
   expect(state.delivery.prompts[0]).not.toContain("This finish subscription has ended.");
 });
 
@@ -924,7 +925,40 @@ test("an activity check that throws outright is not read as a settled child", as
   state.observation.waits[0]!.result.resolve(reply("Partial"));
   await eventually(() => state.delivery.prompts.length === 1);
   expect(state.delivery.prompts[0]).toContain("This is not its final reply");
-  expect(state.delivery.prompts[0]).toContain("could not read background state");
+  expect(state.delivery.prompts[0]).toContain("its background state could not be read");
+});
+
+test("an activity check that keeps throwing is logged once, and once more when it answers again", async () => {
+  const lines: Array<{ level: number; msg: string }> = [];
+  const logger = pino({ level: "info" }, { write: (line: string) => lines.push(JSON.parse(line)) });
+  let throwing = true;
+  let calls = 0;
+  const state = await scenario(undefined, 0, 1, {
+    childActivity: async () => {
+      calls++;
+      if (throwing) throw new Error("activity unavailable");
+      return { ...SETTLED, providerBackgroundWork: true };
+    },
+    recheckIntervalMs: 5,
+    logger,
+  });
+  const fromActivity = (level: number) =>
+    lines.filter((line) => line.level === level && /settled/.test(line.msg));
+  await state.service.register(intent);
+  await eventually(() => state.observation.waits.length === 1);
+  state.observation.waits[0]!.result.resolve(reply("Partial"));
+  await eventually(() => state.delivery.prompts.length === 1);
+  state.delivery.acknowledgments[0]!.resolve("steered");
+  // Rechecks keep failing every few milliseconds.
+  await eventually(() => calls >= 6);
+  expect(fromActivity(40)).toHaveLength(1);
+  throwing = false;
+  await eventually(() => fromActivity(30).length === 1);
+  const answered = calls;
+  await eventually(() => calls >= answered + 3);
+  expect(fromActivity(30)).toHaveLength(1);
+  throwing = true;
+  await eventually(() => fromActivity(40).length === 2);
 });
 
 test("a recovered follow enforces its time limit without waiting for another terminal event", async () => {

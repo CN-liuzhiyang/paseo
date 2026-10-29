@@ -11,6 +11,7 @@ import {
   finishNotificationEvents,
   type FinishNotificationReason,
 } from "./internal/notification.js";
+import { createFailureLog, type FailureLog } from "./internal/failure-log.js";
 export { createJsonFinishSubscriptionStore } from "./internal/json-store.js";
 
 /**
@@ -49,9 +50,12 @@ export interface ChildActivity {
   queuedMessages: boolean;
   /**
    * The answer above cannot be trusted: its provider has the probe but did not answer it, or the
-   * runtime that answered is no longer the child's. Not knowing counts as not settled.
+   * runtime that answered is no longer the child's. Not knowing counts as not settled. The text
+   * goes into the notification to the caller.
    */
-  uncertain?: "could not read background state" | "runtime changed";
+  uncertain?:
+    | "its background state could not be read"
+    | "its runtime was replaced while being checked";
 }
 export interface FinishSubscriptionStore {
   list(): Promise<FinishSubscription[]>;
@@ -158,7 +162,8 @@ const NOTHING_OBSERVED: FinishObservationResult = {
   lastMessage: null,
   error: null,
 };
-const UNREADABLE: NonNullable<ChildActivity["uncertain"]> = "could not read background state";
+const UNREADABLE: NonNullable<ChildActivity["uncertain"]> =
+  "its background state could not be read";
 
 function tell(result: FinishObservationResult, view: NotificationView, next: Stage): Delivering {
   return { kind: "delivering", result, view, next };
@@ -287,16 +292,21 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     return Math.max(count, registering.has(agentId) ? 1 : 0);
   }
   /** Empty only when nothing says the child will go on by itself, and nothing is left unknown. */
-  async function unsettledReasons(childAgentId: string): Promise<string[]> {
+  async function unsettledReasons(childAgentId: string, log: FailureLog): Promise<string[]> {
     const reasons: string[] = [];
     const delegated = delegatedBy(childAgentId);
     if (delegated) reasons.push(`waiting on ${plural(delegated, "delegated agent")}`);
     let activity: ChildActivity | undefined;
     try {
       activity = await deps.childActivity?.(childAgentId);
+      log.recovered(childAgentId, { childAgentId }, "Can tell whether the child settled again");
     } catch (error) {
       // Not knowing is not the same as nothing pending: stay subscribed and ask again.
-      deps.logger.warn({ err: error, childAgentId }, "Could not tell whether the child settled");
+      log.failed(
+        childAgentId,
+        { err: error, childAgentId },
+        "Could not tell whether the child settled",
+      );
       reasons.push(UNREADABLE);
     }
     if (activity?.providerBackgroundWork)
@@ -392,6 +402,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
     let remoteFailures = 0;
     let retries = 0;
     let warned = false;
+    const activityLog = createFailureLog(deps.logger);
     async function observeNext(): Promise<FinishObservationResult | undefined> {
       try {
         observation ??= await deps.open(record, signal);
@@ -477,7 +488,7 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
         // Told as it is. A permission request leaves the subscription waiting for the next result.
         return tell(result, {}, reason === "needs permission" ? waiting : ENDING);
       }
-      const unsettled = await unsettledReasons(record.childAgentId);
+      const unsettled = await unsettledReasons(record.childAgentId, activityLog);
       if (!unsettled.length) return tell(result, { subscriptionEnds: true }, ENDING);
       const lastEnded = {
         ...result,
@@ -513,7 +524,8 @@ export function createFinishSubscriptions(deps: Dependencies): FinishSubscriptio
       const { following } = waiting;
       if (!following) return waiting;
       const limit = limitReached(following, now());
-      if (!limit && (await unsettledReasons(record.childAgentId)).length) return waiting;
+      if (!limit && (await unsettledReasons(record.childAgentId, activityLog)).length)
+        return waiting;
       const ended = waiting.lastEnded ?? NOTHING_OBSERVED;
       const held = await holdOff(ended, waiting);
       if (held) return held;

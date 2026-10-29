@@ -18,6 +18,7 @@ function activityFor(options: {
   queued?: boolean;
 }) {
   const warn = vi.fn();
+  const info = vi.fn();
   const { agent } = options;
   const live = agent
     ? ({
@@ -29,9 +30,9 @@ function activityFor(options: {
     agentManager: { getAgent: () => live },
     messages: () =>
       ({ hasPending: () => options.queued ?? false }) as unknown as AgentMessageDelivery,
-    logger: { warn },
+    logger: { warn, info },
   });
-  return { childActivity, warn };
+  return { childActivity, warn, info };
 }
 
 test("a provider that says its runtime cannot be stopped reports background work", async () => {
@@ -72,7 +73,7 @@ test("a probe that fails leaves the state unknown, which is not settled, and is 
   });
   expect(await childActivity("child")).toMatchObject({
     providerBackgroundWork: false,
-    uncertain: "could not read background state",
+    uncertain: "its background state could not be read",
   });
   expect(warn).toHaveBeenCalledTimes(1);
 });
@@ -85,7 +86,7 @@ test("a probe that never answers is unknown too", async () => {
     });
     const pending = childActivity("child");
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(await pending).toMatchObject({ uncertain: "could not read background state" });
+    expect(await pending).toMatchObject({ uncertain: "its background state could not be read" });
   } finally {
     vi.useRealTimers();
   }
@@ -120,7 +121,7 @@ function changingAgent() {
   const childActivity = createChildActivity({
     agentManager: { getAgent: () => current as LiveAgent },
     messages: () => ({ hasPending: () => queue.pending }) as unknown as AgentMessageDelivery,
-    logger: { warn: vi.fn() },
+    logger: { warn: vi.fn(), info: vi.fn() },
   });
   return {
     agent,
@@ -148,5 +149,31 @@ test("a probe answered by a runtime that was replaced meanwhile proves nothing a
   const pending = child.childActivity("child");
   child.replaceSession();
   child.probe.resolve(true);
-  expect(await pending).toMatchObject({ uncertain: "runtime changed" });
+  expect(await pending).toMatchObject({
+    uncertain: "its runtime was replaced while being checked",
+  });
+});
+
+test("a probe that keeps failing is logged when it starts failing and when it answers again, not every time", async () => {
+  let failing = true;
+  const { childActivity, warn, info } = activityFor({
+    agent: {
+      lifecycle: "idle",
+      canStopRuntime: async () => {
+        if (failing) throw new Error("provider went away");
+        return true;
+      },
+    },
+  });
+  for (let attempt = 0; attempt < 5; attempt++) await childActivity("child");
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(info).not.toHaveBeenCalled();
+  failing = false;
+  await childActivity("child");
+  await childActivity("child");
+  expect(info).toHaveBeenCalledTimes(1);
+  failing = true;
+  await childActivity("child");
+  await childActivity("child");
+  expect(warn).toHaveBeenCalledTimes(2);
 });

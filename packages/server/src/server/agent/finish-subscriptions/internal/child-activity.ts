@@ -3,6 +3,7 @@ import { withTimeout } from "../../../../utils/promise-timeout.js";
 import type { AgentManager } from "../../agent-manager.js";
 import type { AgentMessageDelivery } from "../../agent-messages/index.js";
 import type { ChildActivity } from "../index.js";
+import { createFailureLog } from "./failure-log.js";
 
 // The same bound idle-runtime cleanup puts on this probe.
 const PROBE_TIMEOUT_MS = 10_000;
@@ -17,8 +18,9 @@ const PROBE_TIMEOUT_MS = 10_000;
 export function createChildActivity(input: {
   agentManager: Pick<AgentManager, "getAgent">;
   messages(): AgentMessageDelivery;
-  logger: Pick<Logger, "warn">;
+  logger: Pick<Logger, "warn" | "info">;
 }): (childAgentId: string) => Promise<ChildActivity> {
+  const probeLog = createFailureLog(input.logger);
   return async (childAgentId) => {
     const asked = input.agentManager.getAgent(childAgentId)?.session;
     let providerBackgroundWork = false;
@@ -33,15 +35,16 @@ export function createChildActivity(input: {
           `Runtime safety probe timed out for ${childAgentId}`,
         );
         providerBackgroundWork = canStop !== true;
+        probeLog.recovered(childAgentId, { childAgentId }, "Runtime safety probe answers again");
       } catch (error) {
-        input.logger.warn({ err: error, childAgentId }, "Runtime safety probe failed");
-        uncertain = "could not read background state";
+        probeLog.failed(childAgentId, { err: error, childAgentId }, "Runtime safety probe failed");
+        uncertain = "its background state could not be read";
       }
     }
     // The probe can take seconds. What it says is about the runtime that was asked, and the rest is
     // read only now, so a turn or a message that arrived meanwhile is not missed.
     const agent = input.agentManager.getAgent(childAgentId);
-    if (agent?.session !== asked) uncertain = "runtime changed";
+    if (agent?.session !== asked) uncertain = "its runtime was replaced while being checked";
     return {
       running: agent?.session
         ? agent.lifecycle === "running" || agent.lifecycle === "initializing"
