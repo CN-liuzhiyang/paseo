@@ -9,6 +9,20 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.5.1 - 2026-10-31
+
+Carries upstream v0.14.0-beta.2, the same base as 1.5.0.
+
+### Added
+
+- `paseo send --output-schema <file|json>` asks an existing agent for JSON and prints only that, the way `paseo run --output-schema` does for a new agent. A reply that does not match the schema is sent back to the same agent. The reply must be written after the message was sent, so a turn that writes no text fails instead of returning an older answer. It cannot be combined with `--no-wait`.
+- `--max-retries <n>` on `paseo send` and `paseo run` sets how many times a mismatching reply is sent back (default 2; `0` fails on the first mismatch). `paseo send --wait-timeout <duration>` replaces the fixed 10 minute wait.
+- Proposed upstream in getpaseo/paseo#8334.
+
+### Changed
+
+- When `--output-schema` fails, `error.details` now holds both `validationErrors` and `lastResponse`. For `paseo run` it used to be a string with one of them.
+
 ## 1.5.0 - 2026-10-29
 
 Carries upstream v0.14.0-beta.2, up from v0.12.0. This is an upstream beta. The full upstream notes are in
