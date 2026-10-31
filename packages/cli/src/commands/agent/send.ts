@@ -14,6 +14,7 @@ import {
   awaitStructuredTurn,
   fetchStructuredOutput,
   loadOutputSchema,
+  markTimelineEnd,
   parseMaxRetriesOption,
   parseWaitTimeoutOption,
   validateStructuredOutputOptions,
@@ -195,6 +196,59 @@ function buildSendResult(agentIdArg: string, state: SendWaitState): AgentSendRes
   return { agentId, status: "completed", message: "Agent completed processing the message" };
 }
 
+type SendClient = Awaited<ReturnType<typeof connectToDaemon>>;
+
+async function sendForStructuredOutput(
+  client: SendClient,
+  input: {
+    agentIdArg: string;
+    prompt: string;
+    schema: Record<string, unknown>;
+    maxRetries: number | undefined;
+    waitTimeoutMs: number;
+    images: Array<{ data: string; mimeType: string }> | undefined;
+    sourceAgentId: string | undefined;
+    activeTurnBehavior: ActiveTurnBehavior;
+  },
+): Promise<SingleResult<AgentSendResult>> {
+  // Timeline reads need the full id, and the agent's older answers must not pass for
+  // this turn's: each turn is read from the timeline end marked before it is sent.
+  const target = await client.fetchAgent(input.agentIdArg);
+  if (!target) {
+    throw {
+      code: "AGENT_NOT_FOUND",
+      message: `Agent not found: ${input.agentIdArg}`,
+    } satisfies CommandError;
+  }
+  const agentId = target.agent.id;
+  // Retries go to the same agent, so the images only travel with the first message.
+  let firstTurn = true;
+  const callStructuredTurn = async (structuredPrompt: string): Promise<string> => {
+    const since = await markTimelineEnd(client, agentId);
+    await client.sendAgentMessage(agentId, structuredPrompt, {
+      images: firstTurn ? input.images : undefined,
+      sourceAgentId: input.sourceAgentId,
+      activeTurnBehavior: input.activeTurnBehavior,
+    });
+    firstTurn = false;
+    return awaitStructuredTurn(client, agentId, input.waitTimeoutMs, since);
+  };
+
+  const output = await fetchStructuredOutput(
+    callStructuredTurn,
+    input.prompt,
+    input.schema,
+    input.maxRetries,
+  );
+  await client.close();
+
+  return {
+    type: "single",
+    data: { agentId, status: "completed", message: "Agent completed processing the message" },
+    schema: { ...agentSendSchema, serialize: () => output },
+  };
+}
+
 export async function runSendCommand(
   agentIdArg: string,
   prompt: string | undefined,
@@ -233,35 +287,16 @@ export async function runSendCommand(
     const activeTurnBehavior = options.behavior ?? (sourceAgentId ? "steer" : "interrupt");
 
     if (outputSchema) {
-      // Retries go to the same agent, so the images only travel with the first message.
-      let firstTurn = true;
-      const callStructuredTurn = async (structuredPrompt: string): Promise<string> => {
-        await client.sendAgentMessage(agentIdArg, structuredPrompt, {
-          images: firstTurn ? images : undefined,
-          sourceAgentId,
-          activeTurnBehavior,
-        });
-        firstTurn = false;
-        return awaitStructuredTurn(client, agentIdArg, waitTimeoutMs);
-      };
-
-      const output = await fetchStructuredOutput(
-        callStructuredTurn,
-        promptInput,
-        outputSchema,
+      return await sendForStructuredOutput(client, {
+        agentIdArg,
+        prompt: promptInput,
+        schema: outputSchema,
         maxRetries,
-      );
-      await client.close();
-
-      return {
-        type: "single",
-        data: {
-          agentId: agentIdArg,
-          status: "completed",
-          message: "Agent completed processing the message",
-        },
-        schema: { ...agentSendSchema, serialize: () => output },
-      };
+        waitTimeoutMs,
+        images,
+        sourceAgentId,
+        activeTurnBehavior,
+      });
     }
 
     // Send the message

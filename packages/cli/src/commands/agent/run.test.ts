@@ -265,6 +265,29 @@ describe("awaitStructuredTurn", () => {
     expect(client.fetchAgentTimeline).toHaveBeenCalledWith("agent-full-id", expect.anything());
   });
 
+  it("with a mark, takes only replies after it and only from the same epoch", async () => {
+    const turn = (epoch: string, seq: number) =>
+      awaitStructuredTurn(
+        {
+          waitForFinish: vi.fn().mockResolvedValue({ status: "idle", lastMessage: "old" }),
+          fetchAgentTimeline: vi.fn().mockResolvedValue({
+            epoch,
+            entries: [
+              { seqStart: 1, item: { type: "assistant_message", text: "old" } },
+              { seqStart: 3, item: { type: "assistant_message", text: "new" } },
+            ],
+          }),
+        } as unknown as StructuredTurnClient,
+        "agent-1",
+        1000,
+        { epoch: "e1", seq },
+      );
+
+    await expect(turn("e1", 2)).resolves.toBe("new");
+    await expect(turn("e1", 3)).rejects.toMatchObject({ kind: "empty" });
+    await expect(turn("e2", 2)).rejects.toMatchObject({ kind: "empty" });
+  });
+
   it.each([
     { status: "timeout" },
     { status: "permission" },

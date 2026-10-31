@@ -324,12 +324,27 @@ export interface StructuredTurnClient extends StructuredResponseTimelineClient {
   waitForFinish: ConnectedDaemonClient["waitForFinish"];
 }
 
+/** Where an agent's timeline ended before a message was sent to it. */
+export interface TimelineMark {
+  epoch: string;
+  seq: number;
+}
+
+export async function markTimelineEnd(
+  client: StructuredResponseTimelineClient,
+  agentId: string,
+): Promise<TimelineMark> {
+  const page = await client.fetchAgentTimeline(agentId, { direction: "tail", limit: 1 });
+  return { epoch: page.epoch, seq: page.window.maxSeq };
+}
+
 // Waits for the turn the caller just started and returns the agent's last
-// assistant message.
+// assistant message. With `since`, only a message written after that mark counts.
 export async function awaitStructuredTurn(
   client: StructuredTurnClient,
   agentId: string,
   waitTimeoutMs: number,
+  since?: TimelineMark,
 ): Promise<string> {
   const state = await client.waitForFinish(agentId, waitTimeoutMs);
   if (state.status === "timeout") {
@@ -352,6 +367,7 @@ export async function awaitStructuredTurn(
     client,
     agentId: state.final?.id ?? agentId,
     lastMessage: state.lastMessage,
+    since,
   });
   if (!lastMessage) {
     throw new StructuredRunStatusError(
@@ -366,8 +382,11 @@ export async function resolveStructuredResponseMessage(options: {
   client: StructuredResponseTimelineClient;
   agentId: string;
   lastMessage: string | null;
+  since?: TimelineMark;
 }): Promise<string | null> {
-  const direct = options.lastMessage?.trim();
+  const { since } = options;
+  // The daemon's last message can predate `since`, so only the timeline is trusted then.
+  const direct = since ? undefined : options.lastMessage?.trim();
   if (direct) {
     return direct;
   }
@@ -377,9 +396,19 @@ export async function resolveStructuredResponseMessage(options: {
       direction: "tail",
       limit: 200,
     });
+    // Sequence numbers only compare within one epoch.
+    if (since && timeline.epoch !== since.epoch) {
+      return null;
+    }
     for (let index = timeline.entries.length - 1; index >= 0; index -= 1) {
       const entry = timeline.entries[index];
-      if (!entry || entry.item.type !== "assistant_message") {
+      if (!entry) {
+        continue;
+      }
+      if (since && entry.seqStart <= since.seq) {
+        break;
+      }
+      if (entry.item.type !== "assistant_message") {
         continue;
       }
       const text = entry.item.text.trim();

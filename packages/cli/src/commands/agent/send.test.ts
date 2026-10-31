@@ -5,16 +5,34 @@ import { addSendOptions, runSendCommand, type AgentSendOptions } from "./send.js
 
 const daemonTarget = { kind: "endpoint" as const, host: "example.test:12345" };
 
-const sendAgentMessage = vi.fn();
-const waitForFinish = vi.fn();
+// A daemon whose agent has answered before: its timeline starts with an old, valid reply.
+let timeline: Array<{ seqStart: number; item: { type: string; text: string } }> = [];
+// What each coming turn writes; null is a turn that ends without any text.
+let turns: Array<string | null> = [];
+const append = (type: string, text: string) =>
+  timeline.push({ seqStart: timeline.length + 1, item: { type, text } });
+
+const sendAgentMessage = vi.fn(async (..._args: unknown[]) => append("user_message", "sent"));
+const waitForFinish = vi.fn(async (..._args: unknown[]) => {
+  const text = turns.shift();
+  if (typeof text === "string") append("assistant_message", text);
+  const last = timeline.findLast((entry) => entry.item.type === "assistant_message");
+  return { status: "idle", final: { id: "agent-1" }, lastMessage: last?.item.text ?? null };
+});
 
 vi.mock("../../utils/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/client.js")>()),
   connectToDaemon: vi.fn(async () => ({
+    fetchAgent: async (id: string) =>
+      id.startsWith("agent") ? { agent: { id: "agent-1" } } : null,
     sendAgentMessage,
     waitForFinish,
-    fetchAgentTimeline: vi.fn(async () => ({ entries: [] })),
-    close: vi.fn(async () => undefined),
+    fetchAgentTimeline: async () => ({
+      epoch: "e1",
+      window: { maxSeq: timeline.length },
+      entries: timeline,
+    }),
+    close: async () => undefined,
   })),
 }));
 
@@ -25,19 +43,9 @@ const schema = JSON.stringify({
   additionalProperties: false,
 });
 
-// Each finished turn answers with the next text.
-function agentAnswers(...texts: string[]) {
-  for (const text of texts) {
-    waitForFinish.mockResolvedValueOnce({
-      status: "idle",
-      final: { id: "agent-1" },
-      lastMessage: text,
-    });
-  }
-}
-
-function send(options: Omit<AgentSendOptions, "daemonTarget"> = {}) {
-  return runSendCommand("agent-1", "describe it", { ...options, daemonTarget }, {} as Command);
+// `target` is a prefix; the daemon knows the agent as agent-1.
+function send(options: Omit<AgentSendOptions, "daemonTarget"> = {}, target = "agent") {
+  return runSendCommand(target, "describe it", { ...options, daemonTarget }, {} as Command);
 }
 
 describe("send --output-schema", () => {
@@ -45,8 +53,11 @@ describe("send --output-schema", () => {
 
   beforeEach(() => {
     delete process.env.PASEO_AGENT_ID;
-    sendAgentMessage.mockReset().mockResolvedValue({});
-    waitForFinish.mockReset();
+    timeline = [];
+    append("assistant_message", '{"summary":"old"}');
+    turns = [];
+    sendAgentMessage.mockClear();
+    waitForFinish.mockClear();
     vi.mocked(connectToDaemon).mockClear();
   });
 
@@ -64,7 +75,7 @@ describe("send --output-schema", () => {
   });
 
   it("asks the existing agent with the schema in the message and returns the validated object", async () => {
-    agentAnswers('{"summary":"ok"}');
+    turns = ['{"summary":"ok"}'];
 
     const result = await send({ outputSchema: schema });
 
@@ -76,8 +87,17 @@ describe("send --output-schema", () => {
     expect(text).toContain('"summary"');
   });
 
+  it("does not take an older reply for this turn's answer", async () => {
+    turns = [null];
+
+    const error = await send({ outputSchema: schema, maxRetries: "0" }).catch((err) => err);
+
+    expect(error).toMatchObject({ code: "OUTPUT_SCHEMA_FAILED" });
+    expect(error.details).toBeUndefined();
+  });
+
   it("fails on the first mismatch with --max-retries 0 and hands back the evidence", async () => {
-    agentAnswers('{"summary":1}');
+    turns = ['{"summary":1}'];
 
     await expect(send({ outputSchema: schema, maxRetries: "0" })).rejects.toMatchObject({
       code: "OUTPUT_SCHEMA_FAILED",
@@ -90,7 +110,7 @@ describe("send --output-schema", () => {
   });
 
   it("retries twice by default, each time to the same agent, and returns what a retry fixed", async () => {
-    agentAnswers('{"summary":1}', '{"summary":2}', '{"summary":3}');
+    turns = ['{"summary":1}', '{"summary":2}', '{"summary":3}'];
     await expect(send({ outputSchema: schema })).rejects.toMatchObject({
       details: { lastResponse: '{"summary":3}' },
     });
@@ -100,14 +120,14 @@ describe("send --output-schema", () => {
       "agent-1",
     ]);
 
-    agentAnswers('{"summary":1}', '{"summary":"fixed"}');
+    turns = ['{"summary":1}', '{"summary":"fixed"}'];
     const result = await send({ outputSchema: schema, maxRetries: "1" });
     expect(result.schema.serialize?.(result.data)).toEqual({ summary: "fixed" });
   });
 
   it("sends as the calling agent on every message", async () => {
     process.env.PASEO_AGENT_ID = "caller-1";
-    agentAnswers('{"summary":1}', '{"summary":"ok"}');
+    turns = ['{"summary":1}', '{"summary":"ok"}'];
 
     await send({ outputSchema: schema });
 
@@ -117,12 +137,19 @@ describe("send --output-schema", () => {
   });
 
   it("waits as long as --wait-timeout says, 10 minutes otherwise", async () => {
-    agentAnswers('{"summary":"ok"}', '{"summary":"ok"}');
+    turns = ['{"summary":"ok"}', '{"summary":"ok"}'];
 
     await send({ outputSchema: schema, waitTimeout: "90s" });
     expect(waitForFinish).toHaveBeenLastCalledWith("agent-1", 90_000);
     await send({ outputSchema: schema });
     expect(waitForFinish).toHaveBeenLastCalledWith("agent-1", 600_000);
+  });
+
+  it("sends nothing to an agent that does not exist", async () => {
+    await expect(send({ outputSchema: schema }, "nobody")).rejects.toMatchObject({
+      code: "AGENT_NOT_FOUND",
+    });
+    expect(sendAgentMessage).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -137,13 +164,14 @@ describe("send --output-schema", () => {
 
 describe("send without --output-schema", () => {
   it("sends the prompt as written and waits as before", async () => {
-    sendAgentMessage.mockReset().mockResolvedValue({});
-    waitForFinish.mockReset().mockResolvedValue({ status: "idle", final: { id: "agent-1" } });
+    sendAgentMessage.mockClear();
+    waitForFinish.mockClear();
+    turns = [];
 
     const result = await send({ waitTimeout: "5m" });
 
     expect(sendAgentMessage.mock.calls[0]?.[1]).toBe("describe it");
-    expect(waitForFinish).toHaveBeenCalledWith("agent-1", 300_000);
+    expect(waitForFinish).toHaveBeenCalledWith("agent", 300_000);
     expect(result.data).toMatchObject({ agentId: "agent-1", status: "completed" });
     expect(result.schema.serialize).toBeUndefined();
   });
