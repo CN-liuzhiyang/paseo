@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DaemonConnectionError } from "@getpaseo/client/internal/daemon-client";
 import { resolveCallerAgentId as resolveRunCallerAgentId } from "../../utils/caller-agent.js";
 import {
+  awaitStructuredTurn,
+  fetchStructuredOutput,
+  parseMaxRetriesOption,
   resolveExistingRunWorkspace,
   runRunCommand,
   waitsForFinish,
   type AgentRunOptions,
+  type StructuredTurnClient,
 } from "./run";
 
 const daemonTarget = { kind: "endpoint" as const, host: "example.test:12345" };
@@ -167,5 +171,155 @@ describe("runRunCommand option validation", () => {
       { newWorkspace: "worktree", worktreeMode: "container" },
       /Unsupported worktree mode/,
     );
+  });
+
+  it("rejects --output-schema combined with --no-wait", async () => {
+    await expectInvalidOptions(
+      { outputSchema: '{"type":"object"}', wait: false },
+      /--output-schema cannot be used with --no-wait/,
+    );
+  });
+
+  it("rejects --max-retries without --output-schema", async () => {
+    await expectInvalidOptions({ maxRetries: "0" }, /--max-retries requires --output-schema/);
+  });
+
+  it("rejects a --max-retries that is not a non-negative integer", async () => {
+    await expect(
+      runRunCommand(
+        "do something",
+        { outputSchema: '{"type":"object"}', maxRetries: "-1", daemonTarget },
+        {} as never,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_MAX_RETRIES" });
+  });
+});
+
+describe("--max-retries parsing", () => {
+  it("leaves the default to the caller when the flag is absent", () => {
+    expect(parseMaxRetriesOption(undefined)).toBeUndefined();
+  });
+
+  it.each([
+    ["0", 0],
+    ["2", 2],
+    [" 5 ", 5],
+  ])("reads %j as %i", (value, expected) => {
+    expect(parseMaxRetriesOption(value)).toBe(expected);
+  });
+
+  it.each(["-1", "1.5", "two", ""])("rejects %j", (value) => {
+    expect(() => parseMaxRetriesOption(value)).toThrow(
+      expect.objectContaining({ code: "INVALID_MAX_RETRIES" }),
+    );
+  });
+});
+
+describe("structured output retries", () => {
+  const schema = {
+    type: "object",
+    properties: { summary: { type: "string" } },
+    required: ["summary"],
+    additionalProperties: false,
+  };
+
+  it("returns the parsed object when the first answer matches", async () => {
+    const caller = vi.fn().mockResolvedValue('Here you go: {"summary":"ok"}');
+
+    await expect(fetchStructuredOutput(caller, "describe it", schema)).resolves.toEqual({
+      summary: "ok",
+    });
+    expect(caller).toHaveBeenCalledTimes(1);
+    expect(caller.mock.calls[0]?.[0]).toContain("describe it");
+  });
+
+  it("retries twice by default and then fails", async () => {
+    const caller = vi.fn().mockResolvedValue('{"summary":1}');
+
+    await expect(fetchStructuredOutput(caller, "describe it", schema)).rejects.toMatchObject({
+      code: "OUTPUT_SCHEMA_FAILED",
+    });
+    expect(caller).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails on the first mismatch with --max-retries 0 and hands back the evidence", async () => {
+    const caller = vi.fn().mockResolvedValue('{"summary":1}');
+
+    await expect(fetchStructuredOutput(caller, "describe it", schema, 0)).rejects.toMatchObject({
+      code: "OUTPUT_SCHEMA_FAILED",
+      details: {
+        validationErrors: [expect.stringContaining("/summary")],
+        lastResponse: '{"summary":1}',
+      },
+    });
+    expect(caller).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports text that is not JSON as a validation error carrying the text", async () => {
+    const caller = vi.fn().mockResolvedValue("no json here");
+
+    await expect(fetchStructuredOutput(caller, "describe it", schema, 0)).rejects.toMatchObject({
+      details: { validationErrors: [expect.any(String)], lastResponse: "no json here" },
+    });
+  });
+
+  it("succeeds on a retry and sends the errors back with the schema", async () => {
+    const caller = vi
+      .fn()
+      .mockResolvedValueOnce('{"summary":1}')
+      .mockResolvedValueOnce('{"summary":"fixed"}');
+
+    await expect(fetchStructuredOutput(caller, "describe it", schema, 1)).resolves.toEqual({
+      summary: "fixed",
+    });
+    expect(caller).toHaveBeenCalledTimes(2);
+    expect(caller.mock.calls[1]?.[0]).toContain("/summary");
+  });
+});
+
+describe("awaitStructuredTurn", () => {
+  function clientFinishing(state: Record<string, unknown>, timelineText?: string) {
+    return {
+      waitForFinish: vi.fn().mockResolvedValue(state),
+      fetchAgentTimeline: vi.fn().mockResolvedValue({
+        entries: timelineText ? [{ item: { type: "assistant_message", text: timelineText } }] : [],
+      }),
+    } as unknown as StructuredTurnClient;
+  }
+
+  it("returns the last assistant message of the finished turn", async () => {
+    const client = clientFinishing({ status: "idle", lastMessage: ' {"a":1} ' });
+
+    await expect(awaitStructuredTurn(client, "agent-1", 1000)).resolves.toBe('{"a":1}');
+    expect(client.waitForFinish).toHaveBeenCalledWith("agent-1", 1000);
+  });
+
+  it("reads the timeline under the resolved id when the daemon sent no last message", async () => {
+    const client = clientFinishing(
+      { status: "idle", lastMessage: null, final: { id: "agent-full-id" } },
+      '{"a":2}',
+    );
+
+    await expect(awaitStructuredTurn(client, "agent", 1000)).resolves.toBe('{"a":2}');
+    expect(client.fetchAgentTimeline).toHaveBeenCalledWith("agent-full-id", expect.anything());
+  });
+
+  it.each(["timeout", "permission", "error"])(
+    "turns a %s finish into OUTPUT_SCHEMA_FAILED",
+    async (status) => {
+      const client = clientFinishing({ status, error: "boom" });
+
+      await expect(
+        fetchStructuredOutput(() => awaitStructuredTurn(client, "agent-1", 1000), "p", {}, 0),
+      ).rejects.toMatchObject({ code: "OUTPUT_SCHEMA_FAILED" });
+    },
+  );
+
+  it("fails when the agent finished without any assistant message", async () => {
+    const client = clientFinishing({ status: "idle", lastMessage: null });
+
+    await expect(
+      fetchStructuredOutput(() => awaitStructuredTurn(client, "agent-1", 1000), "p", {}, 0),
+    ).rejects.toMatchObject({ code: "OUTPUT_SCHEMA_FAILED" });
   });
 });

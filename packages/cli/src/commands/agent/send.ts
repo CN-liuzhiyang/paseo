@@ -10,6 +10,16 @@ import type {
 } from "../../output/index.js";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
+import {
+  awaitStructuredTurn,
+  fetchStructuredOutput,
+  loadOutputSchema,
+  parseMaxRetriesOption,
+  parseWaitTimeoutOption,
+  validateStructuredOutputOptions,
+} from "./run.js";
+
+const DEFAULT_WAIT_TIMEOUT_MS = 600000;
 
 /** Result type for agent send command */
 export interface AgentSendResult {
@@ -34,6 +44,9 @@ export interface AgentSendOptions extends CommandOptions {
   image?: string[];
   prompt?: string;
   promptFile?: string;
+  outputSchema?: string;
+  maxRetries?: string;
+  waitTimeout?: string;
 }
 
 export function addSendOptions(cmd: Command): Command {
@@ -50,7 +63,19 @@ export function addSendOptions(cmd: Command): Command {
         "Active-turn behavior (agent default: steer; otherwise: interrupt)",
       ).choices(["interrupt", "steer"]),
     )
-    .option("--no-wait", "Return immediately without waiting for completion");
+    .option("--no-wait", "Return immediately without waiting for completion")
+    .option(
+      "--wait-timeout <duration>",
+      "Maximum time to wait for the agent to finish (e.g., 30s, 5m, 1h). Default: 10m",
+    )
+    .option(
+      "--output-schema <schema>",
+      "Output JSON matching the provided schema file path or inline JSON schema",
+    )
+    .option(
+      "--max-retries <n>",
+      "Retries when the output does not match --output-schema (default: 2; 0 fails on the first mismatch)",
+    );
 }
 
 /**
@@ -186,6 +211,11 @@ export async function runSendCommand(
     throw error;
   }
 
+  const outputSchema = options.outputSchema ? loadOutputSchema(options.outputSchema) : undefined;
+  const maxRetries = parseMaxRetriesOption(options.maxRetries);
+  validateStructuredOutputOptions({ outputSchema, maxRetries, waits: options.wait !== false });
+  const waitTimeoutMs = parseWaitTimeoutOption(options.waitTimeout) || DEFAULT_WAIT_TIMEOUT_MS;
+
   const promptInput = await resolvePromptInput({
     promptArgument: prompt,
     promptOption: options.prompt,
@@ -200,11 +230,45 @@ export async function runSendCommand(
       options.image && options.image.length > 0 ? await readImageFiles(options.image) : undefined;
 
     const sourceAgentId = process.env.PASEO_AGENT_ID?.trim() || undefined;
+    const activeTurnBehavior = options.behavior ?? (sourceAgentId ? "steer" : "interrupt");
+
+    if (outputSchema) {
+      // Retries go to the same agent, so the images only travel with the first message.
+      let firstTurn = true;
+      const callStructuredTurn = async (structuredPrompt: string): Promise<string> => {
+        await client.sendAgentMessage(agentIdArg, structuredPrompt, {
+          images: firstTurn ? images : undefined,
+          sourceAgentId,
+          activeTurnBehavior,
+        });
+        firstTurn = false;
+        return awaitStructuredTurn(client, agentIdArg, waitTimeoutMs);
+      };
+
+      const output = await fetchStructuredOutput(
+        callStructuredTurn,
+        promptInput,
+        outputSchema,
+        maxRetries,
+      );
+      await client.close();
+
+      return {
+        type: "single",
+        data: {
+          agentId: agentIdArg,
+          status: "completed",
+          message: "Agent completed processing the message",
+        },
+        schema: { ...agentSendSchema, serialize: () => output },
+      };
+    }
+
     // Send the message
     const receipt = await client.sendAgentMessage(agentIdArg, promptInput, {
       images,
       sourceAgentId,
-      activeTurnBehavior: options.behavior ?? (sourceAgentId ? "steer" : "interrupt"),
+      activeTurnBehavior,
     });
 
     // If --no-wait, return immediately
@@ -225,7 +289,7 @@ export async function runSendCommand(
       };
     }
 
-    const state = await client.waitForFinish(agentIdArg, 600000); // 10 minute timeout
+    const state = await client.waitForFinish(agentIdArg, waitTimeoutMs);
     await client.close();
 
     return {

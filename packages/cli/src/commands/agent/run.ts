@@ -89,6 +89,10 @@ export function addRunOptions(cmd: Command): Command {
         "--output-schema <schema>",
         "Output JSON matching the provided schema file path or inline JSON schema",
       )
+      .option(
+        "--max-retries <n>",
+        "Retries when the output does not match --output-schema (default: 2; 0 fails on the first mismatch)",
+      )
   );
 }
 
@@ -139,6 +143,7 @@ export interface AgentRunOptions extends CommandOptions {
   label?: string[];
   waitTimeout?: string;
   outputSchema?: string;
+  maxRetries?: string;
 }
 
 function resolveNewWorkspaceKind(options: AgentRunOptions): string | undefined {
@@ -174,7 +179,7 @@ function toRunResult(
   };
 }
 
-function loadOutputSchema(value: string): Record<string, unknown> {
+export function loadOutputSchema(value: string): Record<string, unknown> {
   const trimmed = value.trim();
   if (!trimmed) {
     const error: CommandError = {
@@ -236,10 +241,13 @@ class StructuredRunStatusError extends Error {
   }
 }
 
-async function fetchStructuredOutput(
+const DEFAULT_STRUCTURED_MAX_RETRIES = 2;
+
+export async function fetchStructuredOutput(
   caller: (structuredPrompt: string) => Promise<string>,
   prompt: string,
   outputSchema: ReturnType<typeof loadOutputSchema>,
+  maxRetries: number = DEFAULT_STRUCTURED_MAX_RETRIES,
 ): Promise<Record<string, unknown>> {
   try {
     return await getStructuredAgentResponse<Record<string, unknown>>({
@@ -247,7 +255,7 @@ async function fetchStructuredOutput(
       prompt,
       schema: outputSchema,
       schemaName: "RunOutput",
-      maxRetries: 2,
+      maxRetries,
     });
   } catch (err) {
     if (err instanceof StructuredRunStatusError) {
@@ -257,16 +265,52 @@ async function fetchStructuredOutput(
       } satisfies CommandError;
     }
     if (err instanceof StructuredAgentResponseError) {
+      // A caller that handles the mismatch itself needs both the verdict and
+      // the text it was reached on.
       throw {
         code: "OUTPUT_SCHEMA_FAILED",
         message: "Agent response did not match the required output schema",
-        details:
-          err.validationErrors.length > 0
-            ? err.validationErrors.join("\n")
-            : err.lastResponse || "No response",
+        details: { validationErrors: err.validationErrors, lastResponse: err.lastResponse },
       } satisfies CommandError;
     }
     throw err;
+  }
+}
+
+export function parseMaxRetriesOption(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw {
+      code: "INVALID_MAX_RETRIES",
+      message: `Invalid --max-retries value: ${value}`,
+      details: "Provide a non-negative integer",
+    } satisfies CommandError;
+  }
+  return Number(trimmed);
+}
+
+export function validateStructuredOutputOptions(options: {
+  outputSchema: unknown;
+  maxRetries: number | undefined;
+  waits: boolean;
+}): void {
+  if (!options.outputSchema) {
+    if (options.maxRetries !== undefined) {
+      throw {
+        code: "INVALID_OPTIONS",
+        message: "--max-retries requires --output-schema",
+        details: "Retries apply to output that does not match the schema",
+      } satisfies CommandError;
+    }
+    return;
+  }
+  if (!options.waits) {
+    throw {
+      code: "INVALID_OPTIONS",
+      message: "--output-schema cannot be used with --no-wait",
+      details: "Structured output requires waiting for the agent to finish",
+    } satisfies CommandError;
   }
 }
 
@@ -274,6 +318,48 @@ type ConnectedDaemonClient = Awaited<ReturnType<typeof connectToDaemon>>;
 
 export interface StructuredResponseTimelineClient {
   fetchAgentTimeline: ConnectedDaemonClient["fetchAgentTimeline"];
+}
+
+export interface StructuredTurnClient extends StructuredResponseTimelineClient {
+  waitForFinish: ConnectedDaemonClient["waitForFinish"];
+}
+
+// Waits for the turn the caller just started and returns the agent's last
+// assistant message.
+export async function awaitStructuredTurn(
+  client: StructuredTurnClient,
+  agentId: string,
+  waitTimeoutMs: number,
+): Promise<string> {
+  const state = await client.waitForFinish(agentId, waitTimeoutMs);
+  if (state.status === "timeout") {
+    throw new StructuredRunStatusError("timeout", "Timed out waiting for structured output");
+  }
+  if (state.status === "permission") {
+    throw new StructuredRunStatusError(
+      "permission",
+      "Agent is waiting for permission before producing structured output",
+    );
+  }
+  if (state.status === "error") {
+    throw new StructuredRunStatusError(
+      "error",
+      state.error ?? "Agent failed before producing structured output",
+    );
+  }
+
+  const lastMessage = await resolveStructuredResponseMessage({
+    client,
+    agentId: state.final?.id ?? agentId,
+    lastMessage: state.lastMessage,
+  });
+  if (!lastMessage) {
+    throw new StructuredRunStatusError(
+      "empty",
+      "Agent finished without a structured output message",
+    );
+  }
+  return lastMessage;
 }
 
 export async function resolveStructuredResponseMessage(options: {
@@ -384,7 +470,12 @@ function validateRunWorkspaceOptions(options: AgentRunOptions): void {
   }
 }
 
-function validateRunOptions(prompt: string, options: AgentRunOptions, outputSchema: unknown): void {
+function validateRunOptions(
+  prompt: string,
+  options: AgentRunOptions,
+  outputSchema: unknown,
+  maxRetries: number | undefined,
+): void {
   if (!prompt || prompt.trim().length === 0) {
     throw {
       code: "MISSING_PROMPT",
@@ -398,14 +489,7 @@ function validateRunOptions(prompt: string, options: AgentRunOptions, outputSche
   }
 
   validateRunWorkspaceOptions(options);
-
-  if (outputSchema && !waitsForFinish(options)) {
-    throw {
-      code: "INVALID_OPTIONS",
-      message: "--output-schema cannot be used with --no-wait",
-      details: "Structured output requires waiting for the agent to finish",
-    } satisfies CommandError;
-  }
+  validateStructuredOutputOptions({ outputSchema, maxRetries, waits: waitsForFinish(options) });
 }
 
 export function waitsForFinish(
@@ -414,7 +498,7 @@ export function waitsForFinish(
   return options.wait !== false && !options.background && !options.detach;
 }
 
-function parseWaitTimeoutOption(waitTimeout: string | undefined): number {
+export function parseWaitTimeoutOption(waitTimeout: string | undefined): number {
   if (!waitTimeout) return 0;
   try {
     const ms = parseDuration(waitTimeout);
@@ -595,8 +679,9 @@ export async function runRunCommand(
   _command: Command,
 ): Promise<SingleResult<AgentRunResult>> {
   const outputSchema = options.outputSchema ? loadOutputSchema(options.outputSchema) : undefined;
+  const maxRetries = parseMaxRetriesOption(options.maxRetries);
 
-  validateRunOptions(prompt, options, outputSchema);
+  validateRunOptions(prompt, options, outputSchema, maxRetries);
   const waitTimeoutMs = parseWaitTimeoutOption(options.waitTimeout);
 
   const resolvedProviderModel = resolveProviderAndModel(options);
@@ -653,39 +738,15 @@ export async function runRunCommand(
           await client.sendMessage(structuredAgent.id, structuredPrompt);
         }
 
-        const state = await client.waitForFinish(structuredAgent.id, waitTimeoutMs);
-        if (state.status === "timeout") {
-          throw new StructuredRunStatusError("timeout", "Timed out waiting for structured output");
-        }
-        if (state.status === "permission") {
-          throw new StructuredRunStatusError(
-            "permission",
-            "Agent is waiting for permission before producing structured output",
-          );
-        }
-        if (state.status === "error") {
-          throw new StructuredRunStatusError(
-            "error",
-            state.error ?? "Agent failed before producing structured output",
-          );
-        }
-
-        const lastMessage = await resolveStructuredResponseMessage({
-          client,
-          agentId: structuredAgent.id,
-          lastMessage: state.lastMessage,
-        });
-        if (!lastMessage) {
-          throw new StructuredRunStatusError(
-            "empty",
-            "Agent finished without a structured output message",
-          );
-        }
-
-        return lastMessage;
+        return awaitStructuredTurn(client, structuredAgent.id, waitTimeoutMs);
       };
 
-      const output = await fetchStructuredOutput(callStructuredTurn, prompt, outputSchema);
+      const output = await fetchStructuredOutput(
+        callStructuredTurn,
+        prompt,
+        outputSchema,
+        maxRetries,
+      );
 
       if (!structuredAgent) {
         const error: CommandError = {
