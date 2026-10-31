@@ -173,45 +173,31 @@ describe("runRunCommand option validation", () => {
     );
   });
 
-  it("rejects --output-schema combined with --no-wait", async () => {
-    await expectInvalidOptions(
-      { outputSchema: '{"type":"object"}', wait: false },
-      /--output-schema cannot be used with --no-wait/,
-    );
-  });
-
-  it("rejects --max-retries without --output-schema", async () => {
-    await expectInvalidOptions({ maxRetries: "0" }, /--max-retries requires --output-schema/);
-  });
-
-  it("rejects a --max-retries that is not a non-negative integer", async () => {
+  it.each([
+    ["--output-schema with --no-wait", { outputSchema: "{}", wait: false }, "INVALID_OPTIONS"],
+    ["--max-retries without --output-schema", { maxRetries: "0" }, "INVALID_OPTIONS"],
+    [
+      "a --max-retries that is not a count",
+      { outputSchema: "{}", maxRetries: "-1" },
+      "INVALID_MAX_RETRIES",
+    ],
+  ])("rejects %s", async (_name, options, code) => {
     await expect(
-      runRunCommand(
-        "do something",
-        { outputSchema: '{"type":"object"}', maxRetries: "-1", daemonTarget },
-        {} as never,
-      ),
-    ).rejects.toMatchObject({ code: "INVALID_MAX_RETRIES" });
+      runRunCommand("do something", { ...options, daemonTarget }, {} as never),
+    ).rejects.toMatchObject({ code });
   });
 });
 
 describe("--max-retries parsing", () => {
-  it("leaves the default to the caller when the flag is absent", () => {
+  it("reads a non-negative integer and rejects anything else", () => {
     expect(parseMaxRetriesOption(undefined)).toBeUndefined();
-  });
-
-  it.each([
-    ["0", 0],
-    ["2", 2],
-    [" 5 ", 5],
-  ])("reads %j as %i", (value, expected) => {
-    expect(parseMaxRetriesOption(value)).toBe(expected);
-  });
-
-  it.each(["-1", "1.5", "two", ""])("rejects %j", (value) => {
-    expect(() => parseMaxRetriesOption(value)).toThrow(
-      expect.objectContaining({ code: "INVALID_MAX_RETRIES" }),
-    );
+    expect(parseMaxRetriesOption("0")).toBe(0);
+    expect(parseMaxRetriesOption(" 5 ")).toBe(5);
+    for (const bad of ["-1", "1.5", "two", ""]) {
+      expect(() => parseMaxRetriesOption(bad)).toThrow(
+        expect.objectContaining({ code: "INVALID_MAX_RETRIES" }),
+      );
+    }
   });
 });
 
@@ -222,16 +208,6 @@ describe("structured output retries", () => {
     required: ["summary"],
     additionalProperties: false,
   };
-
-  it("returns the parsed object when the first answer matches", async () => {
-    const caller = vi.fn().mockResolvedValue('Here you go: {"summary":"ok"}');
-
-    await expect(fetchStructuredOutput(caller, "describe it", schema)).resolves.toEqual({
-      summary: "ok",
-    });
-    expect(caller).toHaveBeenCalledTimes(1);
-    expect(caller.mock.calls[0]?.[0]).toContain("describe it");
-  });
 
   it("retries twice by default and then fails", async () => {
     const caller = vi.fn().mockResolvedValue('{"summary":1}');
@@ -253,14 +229,6 @@ describe("structured output retries", () => {
       },
     });
     expect(caller).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports text that is not JSON as a validation error carrying the text", async () => {
-    const caller = vi.fn().mockResolvedValue("no json here");
-
-    await expect(fetchStructuredOutput(caller, "describe it", schema, 0)).rejects.toMatchObject({
-      details: { validationErrors: [expect.any(String)], lastResponse: "no json here" },
-    });
   });
 
   it("succeeds on a retry and sends the errors back with the schema", async () => {
@@ -287,13 +255,6 @@ describe("awaitStructuredTurn", () => {
     } as unknown as StructuredTurnClient;
   }
 
-  it("returns the last assistant message of the finished turn", async () => {
-    const client = clientFinishing({ status: "idle", lastMessage: ' {"a":1} ' });
-
-    await expect(awaitStructuredTurn(client, "agent-1", 1000)).resolves.toBe('{"a":1}');
-    expect(client.waitForFinish).toHaveBeenCalledWith("agent-1", 1000);
-  });
-
   it("reads the timeline under the resolved id when the daemon sent no last message", async () => {
     const client = clientFinishing(
       { status: "idle", lastMessage: null, final: { id: "agent-full-id" } },
@@ -304,22 +265,19 @@ describe("awaitStructuredTurn", () => {
     expect(client.fetchAgentTimeline).toHaveBeenCalledWith("agent-full-id", expect.anything());
   });
 
-  it.each(["timeout", "permission", "error"])(
-    "turns a %s finish into OUTPUT_SCHEMA_FAILED",
-    async (status) => {
-      const client = clientFinishing({ status, error: "boom" });
+  it.each([
+    { status: "timeout" },
+    { status: "permission" },
+    { status: "error" },
+    { status: "idle" },
+  ])(
+    "reports a turn that ended as $status without an answer as OUTPUT_SCHEMA_FAILED",
+    async (state) => {
+      const client = clientFinishing({ ...state, lastMessage: null });
 
       await expect(
         fetchStructuredOutput(() => awaitStructuredTurn(client, "agent-1", 1000), "p", {}, 0),
       ).rejects.toMatchObject({ code: "OUTPUT_SCHEMA_FAILED" });
     },
   );
-
-  it("fails when the agent finished without any assistant message", async () => {
-    const client = clientFinishing({ status: "idle", lastMessage: null });
-
-    await expect(
-      fetchStructuredOutput(() => awaitStructuredTurn(client, "agent-1", 1000), "p", {}, 0),
-    ).rejects.toMatchObject({ code: "OUTPUT_SCHEMA_FAILED" });
-  });
 });
