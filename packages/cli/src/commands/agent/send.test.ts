@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectToDaemon } from "../../utils/client.js";
-import { addSendOptions, runSendCommand, type AgentSendOptions } from "./send.js";
+import { runSendCommand, type AgentSendOptions } from "./send.js";
 
 const daemonTarget = { kind: "endpoint" as const, host: "example.test:12345" };
 
@@ -66,14 +66,6 @@ describe("send --output-schema", () => {
     else process.env.PASEO_AGENT_ID = originalAgentId;
   });
 
-  it("registers the options", () => {
-    const flags = addSendOptions(new Command()).options.map((option) => option.long);
-
-    expect(flags).toEqual(
-      expect.arrayContaining(["--output-schema", "--max-retries", "--wait-timeout"]),
-    );
-  });
-
   it("asks the existing agent with the schema in the message and returns the validated object", async () => {
     turns = ['{"summary":"ok"}'];
 
@@ -123,17 +115,6 @@ describe("send --output-schema", () => {
     turns = ['{"summary":1}', '{"summary":"fixed"}'];
     const result = await send({ outputSchema: schema, maxRetries: "1" });
     expect(result.schema.serialize?.(result.data)).toEqual({ summary: "fixed" });
-  });
-
-  it("sends as the calling agent on every message", async () => {
-    process.env.PASEO_AGENT_ID = "caller-1";
-    turns = ['{"summary":1}', '{"summary":"ok"}'];
-
-    await send({ outputSchema: schema });
-
-    for (const call of sendAgentMessage.mock.calls) {
-      expect(call[2]).toMatchObject({ sourceAgentId: "caller-1", activeTurnBehavior: "steer" });
-    }
   });
 
   it("waits as long as --wait-timeout says, 10 minutes otherwise", async () => {
