@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FOCUSED_PANE_PLACEMENT } from "@/stores/workspace-layout-actions";
 import { createPluginHostNavigation } from "./host-navigation-model";
 
 describe("plugin host navigation", () => {
@@ -92,6 +93,32 @@ describe("plugin host navigation", () => {
       "workspaceId",
     );
     expect(browsers).toEqual([]);
+  });
+
+  it("opens a file tab in the focused pane of the selected or explicit host's workspace, for a path outside the workspace too", () => {
+    const { navigation, destinations } = setup();
+    navigation.openFile!({ workspaceId: "one", path: "C:\\data\\affairs\\D1\\files\\a.png" });
+    navigation.openFile!({ workspaceId: "two", path: "src/main.ts", serverId: "remote" });
+    expect(destinations).toEqual([
+      {
+        serverId: "selected",
+        workspaceId: "one",
+        target: { kind: "file", path: "C:/data/affairs/D1/files/a.png" },
+        placement: FOCUSED_PANE_PLACEMENT,
+      },
+      {
+        serverId: "remote",
+        workspaceId: "two",
+        target: { kind: "file", path: "src/main.ts" },
+        placement: FOCUSED_PANE_PLACEMENT,
+      },
+    ]);
+  });
+
+  it.each(["", "   "])("rejects the empty path %j before opening anything", (path) => {
+    const { navigation, destinations } = setup();
+    expect(() => navigation.openFile!({ workspaceId: "one", path })).toThrow("path");
+    expect(destinations).toEqual([]);
   });
 
   it("opens another plugin's screen on the rendering host with its params", () => {
