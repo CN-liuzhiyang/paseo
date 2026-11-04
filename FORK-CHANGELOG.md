@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.5.2 - 2026-11-04
+
+Carries upstream v0.14.0-beta.2, the same base as 1.5.1.
+
+### Added
+
+- Plugin panels can open a file in the workspace's file tab with `navigation.openFile({ path, workspaceId, line? })`, including files outside the workspace folder. Plugins check that it exists before calling it. Requested upstream in getpaseo/paseo discussion #7585.
+
 ## 1.5.1 - 2026-10-31
 
 Carries upstream v0.14.0-beta.2, the same base as 1.5.0.
