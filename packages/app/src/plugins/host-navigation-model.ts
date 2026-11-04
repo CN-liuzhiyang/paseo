@@ -2,6 +2,10 @@ import type { PluginScreenParams, PluginSurfaceProps } from "@getpaseo/plugin/cl
 import type { NavigateToWorkspaceInput } from "@/stores/navigation-active-workspace-store";
 import { FOCUSED_PANE_PLACEMENT } from "@/stores/workspace-layout-actions";
 import { isHttpUrl } from "@/utils/http-url";
+import {
+  createWorkspaceFileTabTarget,
+  normalizeWorkspaceFileLocation,
+} from "@/workspace/file-open";
 import { parsePluginScreenParams } from "./routes";
 
 interface HostNavigationOwner {
@@ -38,6 +42,19 @@ export function createPluginHostNavigation(
         target: { kind: "commit_diff", sha },
         placement: FOCUSED_PANE_PLACEMENT,
       }),
+    // The file tab the core Files panel opens, in the focused pane like the commit diff above.
+    openFile: ({ workspaceId, path, serverId: targetServerId }) => {
+      const location = normalizeWorkspaceFileLocation({
+        path: typeof path === "string" ? path : "",
+      });
+      if (!location) throw new Error("path is required.");
+      owner.openWorkspace({
+        serverId: targetServerId ?? serverId,
+        workspaceId,
+        target: createWorkspaceFileTabTarget(location),
+        placement: FOCUSED_PANE_PLACEMENT,
+      });
+    },
     // Navigation only: the target plugin gets string route params, as from a deep link, and nothing
     // else. A failure is thrown to the caller and also toasted, for a plugin that does not catch it.
     openPluginScreen: (pluginId, screenId, params) => {
