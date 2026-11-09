@@ -31,6 +31,20 @@ agent catalog during startup, raise the limit in milliseconds:
 The limit applies independently to every provider refresh and covers availability plus the entire
 catalog probe. `PASEO_PROVIDER_REFRESH_TIMEOUT_MS` sets it when the config field is absent.
 
+## Session cost estimates
+
+Codex profiles can set `pricing` alongside `options`. Each rule names an exact `model`,
+`serviceTier`, inclusive `minInputTokens` and optional inclusive `maxInputTokens`, plus
+`input`, `cachedInput`, and `output` rates in USD per million tokens. All three rates
+are required; explicit zero means free. Overlapping rules within one profile are rejected.
+
+A matching profile rule takes precedence over its parent's rules, then the built-in public
+API rates. Each match replaces the entire rate unit. Input ranges apply to one response,
+not the session's cumulative input. `priority` and `fast` name the same tier. Unknown
+models or tiers without an exact rule leave the session cost unknown. Pricing is local
+estimation configuration; it is never sent in provider options. Existing persisted
+estimates retain their priced baseline when the profile rates change.
+
 ## Provider options
 
 Set provider defaults in `agents.providers.<id>.options`. At agent creation, use

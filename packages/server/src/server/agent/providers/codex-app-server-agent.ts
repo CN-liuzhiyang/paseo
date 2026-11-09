@@ -4,7 +4,7 @@ import {
   createCodexUsageState,
   type CodexUsageState,
 } from "./codex/usage-accumulator.js";
-import type { UsagePricingContext } from "./codex/usage-pricing.js";
+import type { UsagePrice, UsagePricingContext } from "./codex/usage-pricing.js";
 import { validateProviderOptions } from "../provider-options.js";
 import {
   getAgentStreamEventTurnId,
@@ -294,6 +294,7 @@ interface CodexAppServerClientLike {
 }
 
 interface CodexAppServerAgentDeps {
+  pricing?: readonly UsagePrice[];
   environment?: Record<string, string>;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   customProvider?: {
@@ -6285,6 +6286,7 @@ export class CodexAppServerAgentSession implements AgentSession {
       state: this.usageState,
       tokenUsage: parsed.tokenUsage,
       context: this.usagePricingContext,
+      prices: this.deps.pricing,
     });
     this.usageState = accumulated.state;
     this.latestUsage = accumulated.usage;

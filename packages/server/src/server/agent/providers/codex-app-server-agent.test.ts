@@ -7843,3 +7843,53 @@ test("publishes a materialized image before dispatching the following turn compl
     await session.close();
   }
 });
+
+test("applies configured pricing through the public Codex session event stream", async () => {
+  const appServer = createFakeCodexAppServer();
+  const rule = {
+    model: "gpt-5.4",
+    serviceTier: "default",
+    minInputTokens: 0,
+    input: 0,
+    cachedInput: 0,
+    output: 0,
+  };
+  const session = new CodexAppServerAgentSession(
+    createConfig(),
+    null,
+    createTestLogger(),
+    async () => appServer.child,
+    { pricing: [rule] },
+  );
+  try {
+    await session.connect();
+    await session.startTurn("pricing test");
+    const usage = new Promise<AgentStreamEvent>((resolve) => {
+      const off = session.subscribe((event) => {
+        if (event.type === "usage_updated") {
+          off();
+          resolve(event);
+        }
+      });
+    });
+    const tokens = { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10 };
+    appServer.child.stdout.write(
+      JSON.stringify({
+        method: "thread/tokenUsage/updated",
+        params: { threadId: session.id, tokenUsage: { total: tokens, last: tokens } },
+      }) + "\n",
+    );
+    expect(await usage).toMatchObject({
+      type: "usage_updated",
+      usage: {
+        totalCostUsd: 0,
+        hasUnknownModelCost: false,
+        costSource: "local-estimate",
+        inputTokens: 100,
+      },
+    });
+    appServer.assertNoErrors();
+  } finally {
+    await session.close();
+  }
+});

@@ -10,7 +10,41 @@ import type {
   SteerResult,
   ImportedTimelineEntry,
 } from "./agent-sdk-types.js";
-import { wrapSessionProvider } from "./provider-registry.js";
+import { buildProviderRegistry, wrapSessionProvider } from "./provider-registry.js";
+import { ProviderOverridesSchema } from "@getpaseo/protocol/provider-config";
+import { findUsagePrice } from "./providers/codex/usage-pricing.js";
+import { createTestLogger } from "../../test-utils/test-logger.js";
+
+test("profile pricing wins before parent rules and builtins without becoming provider options", () => {
+  const parent = {
+    model: "gpt-6.1-sol",
+    serviceTier: "default",
+    minInputTokens: 0,
+    maxInputTokens: 272000,
+    input: 2,
+    cachedInput: 0.1,
+    output: 10,
+  };
+  const child = { ...parent, maxInputTokens: 1000, input: 0, cachedInput: 0, output: 0 };
+  const overrides = ProviderOverridesSchema.parse({
+    codex: { pricing: [parent] },
+    example: {
+      extends: "codex",
+      label: "Example",
+      pricing: [child],
+      options: { sandbox_mode: "read-only" },
+    },
+  });
+  const registry = buildProviderRegistry(createTestLogger(), { providerOverrides: overrides });
+  const configuration = registry.example.configuration;
+  expect(configuration?.providerOptions).toEqual({ sandbox_mode: "read-only" });
+  const context = { model: "gpt-6.1-sol", serviceTier: "default" };
+  expect(findUsagePrice(context, 100, configuration?.pricing)?.input).toBe(0);
+  expect(findUsagePrice(context, 2000, configuration?.pricing)?.input).toBe(2);
+  expect(
+    findUsagePrice({ ...context, serviceTier: "flex" }, 100, configuration?.pricing)?.input,
+  ).toBe(1);
+});
 
 type OptionalAgentSessionMethodName = {
   [K in keyof AgentSession]-?: undefined extends AgentSession[K]

@@ -1,12 +1,9 @@
-export interface UsagePrice {
-  model: string;
-  serviceTier: string;
-  minInputTokens: number;
-  maxInputTokens?: number;
-  input: number;
-  cachedInput: number;
-  output: number;
-}
+import {
+  normalizePricingServiceTier,
+  type ProviderPricingRule,
+} from "@getpaseo/protocol/provider-config";
+
+export type UsagePrice = ProviderPricingRule;
 
 interface PublishedUsagePrice extends UsagePrice {
   source: string;
@@ -74,9 +71,10 @@ export function findUsagePrice(
   overrides: readonly UsagePrice[] = [],
 ): UsagePrice | undefined {
   // Codex's older service-tier id for Fast is priority; no other tier falls back.
-  const serviceTier = context.serviceTier === "priority" ? "fast" : context.serviceTier;
+  const serviceTier = normalizePricingServiceTier(context.serviceTier);
   return [...overrides, ...CODEX_USAGE_PRICES].find((rule) => {
-    const matchesIdentity = rule.model === context.model && rule.serviceTier === serviceTier;
+    const matchesIdentity =
+      rule.model === context.model && normalizePricingServiceTier(rule.serviceTier) === serviceTier;
     const matchesRange =
       inputTokens >= rule.minInputTokens &&
       (rule.maxInputTokens === undefined || inputTokens <= rule.maxInputTokens);
