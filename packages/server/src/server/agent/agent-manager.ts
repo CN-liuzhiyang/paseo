@@ -1487,7 +1487,10 @@ export class AgentManager {
     // agent whose working directory may be gone.
     const record = this.registry ? await this.registry.get(resolvedAgentId) : null;
     const currentResumeOptions = record
-      ? { purpose: record.archivedAt ? ("history" as const) : ("interactive" as const) }
+      ? {
+          purpose: record.archivedAt ? ("history" as const) : ("interactive" as const),
+          lastUsage: record.lastUsage,
+        }
       : resumeOptions;
     const purpose = currentResumeOptions?.purpose ?? "interactive";
 
@@ -1531,6 +1534,7 @@ export class AgentManager {
       ...options,
       launchEnv,
       persistence: handle,
+      lastUsage: currentResumeOptions?.lastUsage,
       restoring: true,
     });
   }
@@ -1707,7 +1711,9 @@ export class AgentManager {
 
       this.paseoToolPolicies.set(agentId, paseoToolPolicy);
       session = handle
-        ? await client.resumeSession(handle, providerLaunchConfig, launchContext)
+        ? await client.resumeSession(handle, providerLaunchConfig, launchContext, {
+            lastUsage: preservedLastUsage,
+          })
         : await client.createSession(providerLaunchConfig, launchContext);
       await this.requireExternalMcpSupport(session, providerLaunchConfig, launchContext);
       this.assertAcceptingAgentRegistrations();
@@ -2176,7 +2182,7 @@ export class AgentManager {
         persistence: record.persistence ?? null,
         historyPrimed: true,
         lastUserMessageAt: record.lastUserMessageAt ? new Date(record.lastUserMessageAt) : null,
-        lastUsage: undefined,
+        lastUsage: record.lastUsage,
         lastError: record.lastError ?? undefined,
         attention,
         internal: record.internal,
@@ -4826,6 +4832,7 @@ export class AgentManager {
     if (terminalDisposition === "stale") return;
     if (event.usage) {
       agent.lastUsage = { ...agent.lastUsage, ...event.usage };
+      if (event.usage.hasUnknownModelCost === true) delete agent.lastUsage.totalCostUsd;
     }
     // If no usage on turn_completed, keep lastUsage as-is so context window
     // data accumulated during streaming isn't lost when the provider omits

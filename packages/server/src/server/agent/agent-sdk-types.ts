@@ -656,6 +656,8 @@ export type AgentResumePurpose = "interactive" | "history";
 
 /** Runtime-only intent for a persisted-session resume. Never persist this option. */
 export interface AgentResumeSessionOptions {
+  /** Latest persisted usage snapshot, used as a resume pricing baseline. */
+  lastUsage?: AgentUsage;
   /** Defaults to interactive. History loading may be read-only for archived native sessions. */
   purpose?: AgentResumePurpose;
   /** See AgentCreateSessionOptions.configuredModelIds. */

@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Logger } from "pino";
 
 import { writeJsonFileAtomic } from "../atomic-file.js";
-import { AgentFeatureSchema, AgentStatusSchema } from "../messages.js";
+import { AgentFeatureSchema, AgentStatusSchema, AgentUsageSchema } from "../messages.js";
 import { toStoredAgentRecord } from "./agent-projections.js";
 import type { ManagedAgent } from "./agent-manager.js";
 import type { AgentSessionConfig } from "./agent-sdk-types.js";
@@ -43,6 +43,7 @@ const PERSISTENCE_HANDLE_SCHEMA = z
   .optional();
 
 const STORED_AGENT_SCHEMA = z.object({
+  lastUsage: AgentUsageSchema.optional(),
   id: z.string(),
   provider: z.string(),
   cwd: z.string(),
