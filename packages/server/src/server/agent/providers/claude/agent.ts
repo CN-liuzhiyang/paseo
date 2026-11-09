@@ -2209,6 +2209,7 @@ class ClaudeContextUsageState {
         cachedInputTokens: message.usage.cache_read_input_tokens,
         outputTokens: message.usage.output_tokens,
         totalCostUsd: message.total_cost_usd,
+        costSource: "sdk",
       };
 
       const modelContextWindowMaxTokens = this.recordModelUsage(message.modelUsage, modelId);

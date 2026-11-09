@@ -223,6 +223,9 @@ export interface AgentUsage {
   cachedInputTokens?: number;
   outputTokens?: number;
   totalCostUsd?: number;
+  costSource?: string;
+  hasUnknownModelCost?: boolean;
+  tokenUsageScope?: string;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
 }

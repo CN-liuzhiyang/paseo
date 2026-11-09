@@ -415,6 +415,9 @@ export interface ProviderUsage {
   cachedInputTokens?: number;
   outputTokens?: number;
   totalCostUsd?: number;
+  costSource?: string;
+  hasUnknownModelCost?: boolean;
+  tokenUsageScope?: string;
   contextWindowMaxTokens?: number;
   contextWindowUsedTokens?: number;
 }
@@ -1063,6 +1066,9 @@ const usageSchema = z
     cachedInputTokens: z.number().optional(),
     outputTokens: z.number().optional(),
     totalCostUsd: z.number().optional(),
+    costSource: z.string().optional(),
+    hasUnknownModelCost: z.boolean().optional(),
+    tokenUsageScope: z.string().optional(),
     contextWindowMaxTokens: z.number().optional(),
     contextWindowUsedTokens: z.number().optional(),
   })

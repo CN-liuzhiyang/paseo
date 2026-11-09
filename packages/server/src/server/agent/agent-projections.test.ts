@@ -474,6 +474,16 @@ describe("toAgentPayload", () => {
     });
   });
 
+  it("preserves usage scope, cost origin and unknown cost without inventing an amount", () => {
+    const lastUsage = {
+      inputTokens: 42,
+      costSource: "local-estimate",
+      hasUnknownModelCost: true,
+      tokenUsageScope: "session",
+    };
+    expect(toAgentPayload(createManagedAgent({ lastUsage })).lastUsage).toEqual(lastUsage);
+  });
+
   it("includes features in the snapshot payload", () => {
     const features = [createFeature()];
     const agent = createManagedAgent({ features });

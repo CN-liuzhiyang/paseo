@@ -147,6 +147,8 @@ Move dynamic text from the former component into updates from your model or SDK 
 Custom icon components may still use hooks. Composer pills always show icon and label and never
 show chevrons. See [buttons](./reference.md#button-descriptor) for menus, popovers, and visibility.
 
+`ProviderUsage` preserves optional `costSource`, `hasUnknownModelCost`, and `tokenUsageScope` on `session.usage` events. Omit `totalCostUsd` when any usage cannot be priced; an explicit zero remains free usage. SDK costs use `sdk`; locally calculated estimates use `local-estimate`.
+
 ## 4. Separate imports
 
 Move hooks (`usePaseo`, `useRpc`, `useSettings`, `useAgent`, `useWorkspace`) and client contribution
