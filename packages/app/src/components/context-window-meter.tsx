@@ -11,7 +11,7 @@ import { useHostReportsUsage } from "@/usage";
 import type { Theme } from "@/styles/theme";
 import { ContextWindowDetails } from "./context-window-details";
 import { ContextWindowSheet } from "./context-window-sheet";
-import { formatContextPercentage } from "./context-window-meter.utils";
+import { formatContextPercentage, formatSessionCostLabel } from "./context-window-meter.utils";
 
 interface ContextWindowMeterProps {
   serverId: string;
@@ -19,6 +19,8 @@ interface ContextWindowMeterProps {
   maxTokens: number | null;
   usedTokens: number | null;
   totalCostUsd?: number | null;
+  costSource?: string;
+  hasUnknownModelCost?: boolean;
   showPercentage?: boolean;
   /** Optional glyph envelope for icon-toolbar alignment. */
   glyphSize?: number;
@@ -48,16 +50,6 @@ function getUsagePercentage(maxTokens: number, usedTokens: number): number | nul
 
 function clampPercentage(value: number): number {
   return Math.max(0, Math.min(100, value));
-}
-
-function formatSessionCost(value: number): string | null {
-  if (!Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-  if (value < 0.01) {
-    return `$${value.toFixed(4)}`;
-  }
-  return `$${value.toFixed(2)}`;
 }
 
 function getProgressColor(percentage: number, theme: Theme): string {
@@ -149,6 +141,8 @@ export function ContextWindowMeter({
   maxTokens,
   usedTokens,
   totalCostUsd,
+  costSource,
+  hasUnknownModelCost,
   showPercentage = false,
   glyphSize,
 }: ContextWindowMeterProps) {
@@ -180,8 +174,10 @@ export function ContextWindowMeter({
     }),
     [percentage],
   );
-  const formattedSessionCost =
-    typeof totalCostUsd === "number" ? formatSessionCost(totalCostUsd) : null;
+  const sessionCostLabel = formatSessionCostLabel({
+    usage: { totalCostUsd: totalCostUsd ?? undefined, costSource, hasUnknownModelCost },
+    t,
+  });
   const containerStyle = geometry.containerStyle;
   const ring = (
     <ContextWindowRing
@@ -220,7 +216,7 @@ export function ContextWindowMeter({
             serverId={serverId}
             agentId={agentId}
             context={context}
-            sessionCost={formattedSessionCost}
+            sessionCostLabel={sessionCostLabel}
             showTitle={false}
             refreshable
           />
@@ -261,7 +257,7 @@ export function ContextWindowMeter({
             serverId={serverId}
             agentId={agentId}
             context={context}
-            sessionCost={formattedSessionCost}
+            sessionCostLabel={sessionCostLabel}
             showTitle
             refreshable={false}
           />
@@ -295,7 +291,7 @@ export function ContextWindowMeter({
           serverId={serverId}
           agentId={agentId}
           context={context}
-          sessionCost={formattedSessionCost}
+          sessionCostLabel={sessionCostLabel}
           showTitle
           refreshable
         />

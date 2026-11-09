@@ -12,7 +12,7 @@ interface ContextWindowDetailsProps {
     usedTokens: number;
     maxTokens: number;
   } | null;
-  sessionCost: string | null;
+  sessionCostLabel: string | null;
   /** The hover card and tooltip title themselves; the sheet's header carries the title instead. */
   showTitle: boolean;
   /** Whether the usage cards have a Refresh button; without one they show their freshness. */
@@ -27,7 +27,7 @@ export function ContextWindowDetails({
   serverId,
   agentId,
   context,
-  sessionCost,
+  sessionCostLabel,
   showTitle,
   refreshable,
 }: ContextWindowDetailsProps) {
@@ -51,9 +51,7 @@ export function ContextWindowDetails({
         ) : (
           <Text style={styles.detail}>{t("contextWindow.noData")}</Text>
         )}
-        {sessionCost ? (
-          <Text style={styles.detail}>{t("contextWindow.sessionCost", { cost: sessionCost })}</Text>
-        ) : null}
+        {sessionCostLabel ? <Text style={styles.detail}>{sessionCostLabel}</Text> : null}
       </View>
       <AgentUsage serverId={serverId} agentId={agentId} refreshable={refreshable} />
     </>
