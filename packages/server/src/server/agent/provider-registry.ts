@@ -1,3 +1,4 @@
+import type { ProviderPricingRule } from "@getpaseo/protocol/provider-config";
 import type { Logger } from "pino";
 import type { ProviderOptions, ToolPolicy } from "@getpaseo/protocol/agent-types";
 
@@ -119,6 +120,7 @@ interface ProviderClientFactoryOptions extends Pick<
   "workspaceGitService" | "managedProcesses" | "ompRuntime"
 > {
   openCodeBridge?: OpenCodeBridge;
+  pricing?: readonly ProviderPricingRule[];
   customProvider?: {
     id: string;
     label: string;
@@ -141,6 +143,7 @@ interface ResolvedProvider {
   enabled: boolean;
   derivedFromProviderId: string | null;
   providerOptions?: ProviderOptions;
+  pricing?: readonly ProviderPricingRule[];
   createBaseClient: (logger: Logger) => AgentClient;
   contract: ProviderContract;
 }
@@ -196,6 +199,7 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
     new CodexAppServerAgentClient(logger, runtimeSettings, {
       workspaceGitService: options?.workspaceGitService,
       customProvider: options?.customProvider,
+      pricing: options?.pricing,
     }),
   copilot: (logger, runtimeSettings) =>
     new CopilotACPAgentClient({
@@ -750,7 +754,9 @@ function resolveRegisteredProvider(input: RegisteredProvider): ResolvedProvider 
     enabled: override?.enabled ?? definition.enabledByDefault ?? true,
     derivedFromProviderId: null,
     providerOptions: configuredProviderOptions(override),
-    createBaseClient: (logger) => input.createClient(logger, runtimeSettings),
+    pricing: override?.pricing,
+    createBaseClient: (logger) =>
+      input.createClient(logger, runtimeSettings, { pricing: override?.pricing }),
     contract,
   };
 }
@@ -779,8 +785,9 @@ function buildResolvedBuiltinProviders(
         definition,
         override,
         runtimeSettings: runtimeSettings?.[definition.id],
-        createClient: (logger, settings) =>
+        createClient: (logger, settings, factoryOptions) =>
           factory(logger, settings, {
+            pricing: factoryOptions?.pricing,
             workspaceGitService: options.workspaceGitService,
             managedProcesses: options.managedProcesses,
             ompRuntime: options.ompRuntime,
@@ -880,6 +887,7 @@ function addDerivedProviders(
     const baseDefinition = baseProvider.definition;
     const baseFactory = getProviderClientFactory(baseProviderId);
     const providerOptions = configuredProviderOptions(override) ?? baseProvider.providerOptions;
+    const pricing = [...(override.pricing ?? []), ...(baseProvider.pricing ?? [])];
 
     resolvedProviders.set(providerId, {
       definition: createDerivedDefinition(providerId, baseDefinition, override),
@@ -890,8 +898,10 @@ function addDerivedProviders(
       enabled: override.enabled !== false,
       derivedFromProviderId: baseProviderId,
       providerOptions,
+      pricing,
       createBaseClient: (logger) =>
         baseFactory(logger, mergedRuntimeSettings, {
+          pricing,
           managedProcesses: options.managedProcesses,
           openCodeBridge: options.openCodeBridge,
           customProvider: {

@@ -386,6 +386,12 @@ const SourceSchema = z.object({
             pendingPermissions: [],
             persistence: { provider: "claude", sessionId: "session-1" },
             title: "Agent",
+            lastUsage: {
+              inputTokens: 42,
+              costSource: "local-estimate",
+              hasUnknownModelCost: true,
+              tokenUsageScope: "session",
+            },
           },
         },
       },

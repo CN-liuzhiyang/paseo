@@ -130,6 +130,8 @@ pill.remove();
 
 ## 4. 拆分导入 {#4-separate-imports}
 
+`ProviderUsage` 在 `session.usage` 事件中保留可选的 `costSource`、`hasUnknownModelCost` 和 `tokenUsageScope`。费用不完整时不提供 `totalCostUsd`；显式的 0 表示免费。SDK 上报标为 `sdk`，本地估算标为 `local-estimate`。
+
 把 hook（`usePaseo`、`useRpc`、`useSettings`、`useAgent`、`useWorkspace`）和客户端贡献类型从 `@getpaseo/plugin` 移到 `@getpaseo/plugin/client`。把 `Icon` 移到 `@getpaseo/plugin/client/ui`。从 `@getpaseo/plugin/server` 导入服务端 context 和生命周期契约。共享的辅助函数（`defineRpc`、`defineSettings`、`defineAttachmentSource`）、schema 和普通数据类型保留在根入口。这些规则同样适用于类型导入。完整的契约见[运行时模块](reference#runtime-modules)。
 
 把其余的 SDK 子路径移到它们所属的运行时下：

@@ -148,6 +148,22 @@ describe("AgentStorage", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  test("persists a complete usage snapshot across a storage restart", async () => {
+    const lastUsage = {
+      inputTokens: 100,
+      cachedInputTokens: 80,
+      outputTokens: 10,
+      totalCostUsd: 0.000148,
+      costSource: "local-estimate",
+      hasUnknownModelCost: false,
+      tokenUsageScope: "session",
+      contextWindowUsedTokens: 110,
+    };
+    await storage.applySnapshot(createManagedAgent({ id: "priced-session", lastUsage }));
+    const restarted = new AgentStorage(storagePath, logger);
+    expect((await restarted.get("priced-session"))?.lastUsage).toEqual(lastUsage);
+  });
+
   test("applySnapshot persists configs and snapshot metadata", async () => {
     await storage.applySnapshot(
       createManagedAgent({

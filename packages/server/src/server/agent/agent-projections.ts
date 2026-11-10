@@ -96,6 +96,7 @@ export function toStoredAgentRecord(
     lastModeId: agent.currentModeId ?? config?.modeId ?? null,
     config: config ?? null,
     launchEnv: agent.launchEnv ? { ...agent.launchEnv } : undefined,
+    lastUsage: sanitizeUsage(agent.lastUsage),
     runtimeInfo,
     features: normalizeFeatures(agent.features),
     persistence,
@@ -248,6 +249,7 @@ export function buildStoredAgentPayload(
     updatedAt: updatedAt.toISOString(),
     lastUserMessageAt: lastUserMessageAt ? lastUserMessageAt.toISOString() : null,
     status: record.lastStatus,
+    lastUsage: sanitizeUsage(record.lastUsage),
     capabilities: defaultCapabilities,
     currentModeId: record.lastModeId ?? null,
     availableModes: [],
@@ -514,7 +516,9 @@ function sanitizeMetadataArray(value: unknown): AgentMetadata[] | undefined {
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
-type UsageNumericField = Exclude<keyof AgentUsage, never>;
+type UsageNumericField = {
+  [K in keyof AgentUsage]-?: NonNullable<AgentUsage[K]> extends number ? K : never;
+}[keyof AgentUsage];
 
 function assignFiniteNumber(
   source: { [key: string]: JsonValue },
@@ -547,6 +551,12 @@ function sanitizeUsage(value: unknown): AgentUsage | undefined {
     if (!assignFiniteNumber(sanitized, result, field)) {
       return undefined;
     }
+  }
+  if (typeof sanitized.costSource === "string") result.costSource = sanitized.costSource;
+  if (typeof sanitized.tokenUsageScope === "string")
+    result.tokenUsageScope = sanitized.tokenUsageScope;
+  if (typeof sanitized.hasUnknownModelCost === "boolean") {
+    result.hasUnknownModelCost = sanitized.hasUnknownModelCost;
   }
   return Object.keys(result).length ? result : undefined;
 }

@@ -139,6 +139,19 @@ function createFeature(overrides: Partial<AgentFeature> = {}): AgentFeature {
 }
 
 describe("toStoredAgentRecord", () => {
+  it("round trips cumulative cost metadata through stored and live projections", () => {
+    const lastUsage = {
+      inputTokens: 100,
+      totalCostUsd: 0,
+      costSource: "local-estimate",
+      hasUnknownModelCost: false,
+      tokenUsageScope: "session",
+    };
+    const record = toStoredAgentRecord(createManagedAgent({ lastUsage }));
+    expect(record.lastUsage).toEqual(lastUsage);
+    expect(buildStoredAgentPayload(record, ["claude"]).lastUsage).toEqual(lastUsage);
+  });
+
   it("captures lifecycle metadata, config, and persistence", () => {
     const agent = createManagedAgent({
       currentModeId: "focus",
@@ -472,6 +485,16 @@ describe("toAgentPayload", () => {
       outputTokens: 20,
       totalCostUsd: 1.25,
     });
+  });
+
+  it("preserves usage scope, cost origin and unknown cost without inventing an amount", () => {
+    const lastUsage = {
+      inputTokens: 42,
+      costSource: "local-estimate",
+      hasUnknownModelCost: true,
+      tokenUsageScope: "session",
+    };
+    expect(toAgentPayload(createManagedAgent({ lastUsage })).lastUsage).toEqual(lastUsage);
   });
 
   it("includes features in the snapshot payload", () => {

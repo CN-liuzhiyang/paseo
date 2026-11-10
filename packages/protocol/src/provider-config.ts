@@ -48,7 +48,56 @@ export const ProviderProfileModelSchema = z.object({
   thinkingOptions: z.array(ProviderProfileThinkingOptionSchema).optional(),
 });
 
+export const ProviderPricingRuleSchema = z
+  .object({
+    model: z.string().min(1),
+    serviceTier: z.string().min(1),
+    minInputTokens: z.number().int().nonnegative(),
+    maxInputTokens: z.number().int().nonnegative().optional(),
+    input: z.number().finite().nonnegative(),
+    cachedInput: z.number().finite().nonnegative(),
+    output: z.number().finite().nonnegative(),
+  })
+  .refine(
+    (rule) => rule.maxInputTokens === undefined || rule.maxInputTokens >= rule.minInputTokens,
+    {
+      message: "Pricing input range must not be reversed",
+      path: ["maxInputTokens"],
+    },
+  );
+
+export type ProviderPricingRule = z.infer<typeof ProviderPricingRuleSchema>;
+
+export function normalizePricingServiceTier(tier: string | null): string | null {
+  return tier === "priority" ? "fast" : tier;
+}
+
+export const ProviderPricingSchema = z
+  .array(ProviderPricingRuleSchema)
+  .superRefine((rules, ctx) => {
+    for (let index = 0; index < rules.length; index++) {
+      const rule = rules[index];
+      const overlaps = rules
+        .slice(0, index)
+        .some(
+          (other) =>
+            other.model === rule.model &&
+            normalizePricingServiceTier(other.serviceTier) ===
+              normalizePricingServiceTier(rule.serviceTier) &&
+            rule.minInputTokens <= (other.maxInputTokens ?? Infinity) &&
+            other.minInputTokens <= (rule.maxInputTokens ?? Infinity),
+        );
+      if (overlaps)
+        ctx.addIssue({
+          code: "custom",
+          path: [index],
+          message: "Conflicting pricing rules for model, service tier and input range",
+        });
+    }
+  });
+
 export const ProviderOverrideSchema = z.object({
+  pricing: ProviderPricingSchema.optional(),
   extends: z.string().optional(),
   label: z.string().optional(),
   description: z.string().optional(),

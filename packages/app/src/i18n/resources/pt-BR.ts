@@ -2157,6 +2157,8 @@ export const ptBR: TranslationResources = {
     used: "{{percentage}}% usado",
     tokens: "{{used}} / {{max}} tokens",
     sessionCost: "Custo da sessão {{cost}}",
+    estimatedSessionCost: "Custo da sessão aprox. {{cost}}",
+    unknownSessionCost: "Custo da sessão desconhecido",
     accessibility: "Janela de contexto {{percentage}}% usada",
   },
   review: {

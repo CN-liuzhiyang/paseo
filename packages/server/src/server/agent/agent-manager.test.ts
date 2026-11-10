@@ -1,3 +1,4 @@
+import type { AgentUsage } from "./agent-sdk-types.js";
 import { createIdleRuntimeCleanup } from "./idle-runtime-cleanup/index.js";
 import {
   prepareAgentMessage,
@@ -12694,4 +12695,114 @@ test("an out-of-band command racing idle cleanup waits for the resumed runtime",
   expect(await command).toEqual({ disposition: "out_of_band" });
   expect(h.commands).toEqual(["/maintenance"]);
   expect(h.prompts).toEqual([]);
+});
+
+test("clears a previously priced amount when terminal usage becomes unknown", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-unknown-cost-"));
+  const client = new SessionRecordingAgentClient();
+  const manager = new AgentManager({ clients: { codex: client }, logger });
+  const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  onTestFinished(async () => {
+    await manager.closeAgent(agent.id);
+    rmSync(workdir, { recursive: true, force: true });
+  });
+  const session = client.sessions[0];
+  const settled = new Promise<void>((resolve) => {
+    const unsubscribe = manager.subscribe(
+      (event) => {
+        if (event.type === "agent_state" && event.agent.lastUsage?.hasUnknownModelCost === true) {
+          unsubscribe();
+          resolve();
+        }
+      },
+      { agentId: agent.id, replayState: false },
+    );
+  });
+  session.pushEvent({ type: "turn_started", provider: "codex", turnId: "priced-turn" });
+  session.pushEvent({
+    type: "usage_updated",
+    provider: "codex",
+    turnId: "priced-turn",
+    usage: { totalCostUsd: 1, costSource: "local-estimate", hasUnknownModelCost: false },
+  });
+  session.pushEvent({
+    type: "turn_completed",
+    provider: "codex",
+    turnId: "priced-turn",
+    usage: { costSource: "local-estimate", hasUnknownModelCost: true },
+  });
+  await settled;
+  expect(manager.getAgent(agent.id)?.lastUsage).toEqual({
+    costSource: "local-estimate",
+    hasUnknownModelCost: true,
+  });
+});
+
+test("restores stored usage and sends the baseline to the resumed provider", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "agent-usage-baseline-"));
+  const storage = new AgentStorage(join(workdir, "agents"), logger);
+  const firstClient = new SessionRecordingAgentClient();
+  const first = new AgentManager({ clients: { codex: firstClient }, registry: storage, logger });
+  const created = await first.createAgent({ provider: "codex", cwd: workdir }, undefined, {
+    workspaceId: undefined,
+  });
+  const usage = {
+    inputTokens: 100,
+    cachedInputTokens: 80,
+    outputTokens: 10,
+    totalCostUsd: 0.000148,
+    costSource: "local-estimate",
+    hasUnknownModelCost: false,
+    tokenUsageScope: "session",
+  };
+  const updated = new Promise<void>((resolve) => {
+    const off = first.subscribe(
+      (event) => {
+        if (
+          event.type === "agent_state" &&
+          event.agent.lastUsage?.totalCostUsd === usage.totalCostUsd
+        ) {
+          off();
+          resolve();
+        }
+      },
+      { agentId: created.id, replayState: false },
+    );
+  });
+  firstClient.sessions[0].pushEvent({ type: "usage_updated", provider: "codex", usage });
+  await updated;
+  await first.closeAgent(created.id);
+  await storage.flush();
+  let receivedUsage: AgentUsage | undefined;
+  class ResumeClient extends TestAgentClient {
+    override async resumeSession(
+      handle: AgentPersistenceHandle,
+      config?: Partial<AgentSessionConfig>,
+      context?: AgentLaunchContext,
+      options?: AgentResumeSessionOptions,
+    ) {
+      receivedUsage = options?.lastUsage;
+      return super.resumeSession(handle, config, context);
+    }
+  }
+  const restartedStorage = new AgentStorage(join(workdir, "agents"), logger);
+  const restarted = new AgentManager({
+    clients: { codex: new ResumeClient() },
+    registry: restartedStorage,
+    logger,
+  });
+  onTestFinished(async () => {
+    await restarted.closeAgent(created.id);
+    await restartedStorage.flush();
+    rmSync(workdir, { recursive: true, force: true });
+  });
+  const resumed = await ensureAgentLoaded(created.id, {
+    agentManager: restarted,
+    agentStorage: restartedStorage,
+    logger,
+  });
+  expect(resumed.lastUsage).toEqual(usage);
+  expect(receivedUsage).toEqual(usage);
 });

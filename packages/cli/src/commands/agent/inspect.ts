@@ -28,7 +28,10 @@ interface AgentInspect {
     InputTokens: number;
     OutputTokens: number;
     CachedTokens: number;
-    CostUsd: number;
+    CostUsd: number | null;
+    CostSource?: string;
+    HasUnknownModelCost?: boolean;
+    TokenUsageScope?: string;
   } | null;
   Capabilities: {
     Streaming: boolean;
@@ -88,7 +91,8 @@ function shortenPath(path: string): string {
 }
 
 /** Format cost in USD */
-function formatCost(costUsd: number): string {
+export function formatCost(costUsd: number | null): string {
+  if (costUsd === null) return "Unknown";
   if (costUsd === 0) return "$0.00";
   if (costUsd < 0.01) return `$${costUsd.toFixed(4)}`;
   return `$${costUsd.toFixed(2)}`;
@@ -105,13 +109,18 @@ function resolveModel(snapshot: AgentSnapshotPayload): string | null {
   return normalizeModelId(snapshot.runtimeInfo?.model) ?? normalizeModelId(snapshot.model);
 }
 
-function buildLastUsage(snapshot: AgentSnapshotPayload): AgentInspect["LastUsage"] {
+export function buildLastUsage(
+  snapshot: Pick<AgentSnapshotPayload, "lastUsage">,
+): AgentInspect["LastUsage"] {
   if (!snapshot.lastUsage) return null;
   return {
     InputTokens: snapshot.lastUsage.inputTokens ?? 0,
     OutputTokens: snapshot.lastUsage.outputTokens ?? 0,
     CachedTokens: snapshot.lastUsage.cachedInputTokens ?? 0,
-    CostUsd: snapshot.lastUsage.totalCostUsd ?? 0,
+    CostUsd: snapshot.lastUsage.totalCostUsd ?? null,
+    CostSource: snapshot.lastUsage.costSource,
+    HasUnknownModelCost: snapshot.lastUsage.hasUnknownModelCost,
+    TokenUsageScope: snapshot.lastUsage.tokenUsageScope,
   };
 }
 

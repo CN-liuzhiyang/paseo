@@ -353,6 +353,8 @@ Paseo 为服务端代码提供 `@getpaseo/plugin`、`@getpaseo/plugin/server`、
 
 ### Provider {#providers}
 
+`ProviderUsage` 在 `session.usage` 事件中保留可选的 `costSource`、`hasUnknownModelCost` 和 `tokenUsageScope`。费用不完整时不提供 `totalCostUsd`；显式的 0 表示免费。SDK 上报标为 `sdk`，本地估算标为 `local-estimate`。
+
 直接实现和 ACP 实现、会话生命周期、Composer 设置、时间线渲染器、测试和分发，见[构建 Provider 插件](/docs/plugins/providers)。
 
 使用来自 `@getpaseo/plugin/server/provider` 的 `ProviderRegistration` 调用 `server.registerProvider()`。它的连接通过 `send()` 接收输入，并通过 `onEvent()` 发出完整的状态快照。`send()` 只报告是否接受；提示词的处理结果、轮次、配置、持久化、权限和失败都是事件。

@@ -1,3 +1,10 @@
+import {
+  accumulateCodexUsage,
+  codexTokenUsage,
+  createCodexUsageState,
+  type CodexUsageState,
+} from "./codex/usage-accumulator.js";
+import type { UsagePrice, UsagePricingContext } from "./codex/usage-pricing.js";
 import { validateProviderOptions } from "../provider-options.js";
 import {
   getAgentStreamEventTurnId,
@@ -287,6 +294,7 @@ interface CodexAppServerClientLike {
 }
 
 interface CodexAppServerAgentDeps {
+  pricing?: readonly UsagePrice[];
   environment?: Record<string, string>;
   workspaceGitService?: Pick<WorkspaceGitService, "resolveRepoRoot">;
   customProvider?: {
@@ -651,16 +659,6 @@ function resolvePermissionDecision(
   if (response.behavior === "allow") return "accept";
   if (response.interrupt) return "cancel";
   return "decline";
-}
-
-function firstPositiveFiniteNumber(primary: unknown, secondary: unknown): number | undefined {
-  if (typeof primary === "number" && Number.isFinite(primary) && primary > 0) {
-    return primary;
-  }
-  if (typeof secondary === "number" && Number.isFinite(secondary) && secondary > 0) {
-    return secondary;
-  }
-  return undefined;
 }
 
 function tokenizeCommandArgs(args: string): string[] {
@@ -1069,22 +1067,7 @@ function filterCodexThreadsByCwd(
 }
 
 export function toAgentUsage(tokenUsage: unknown): AgentUsage | undefined {
-  const usage = toObjectRecord(tokenUsage);
-  if (!usage) return undefined;
-  const last = toObjectRecord(usage.last);
-  const contextWindowMaxTokens = firstPositiveFiniteNumber(
-    usage.model_context_window,
-    usage.modelContextWindow,
-  );
-  const contextWindowUsedTokens = firstPositiveFiniteNumber(last?.total_tokens, last?.totalTokens);
-  return {
-    inputTokens: typeof last?.inputTokens === "number" ? last.inputTokens : undefined,
-    cachedInputTokens:
-      typeof last?.cachedInputTokens === "number" ? last.cachedInputTokens : undefined,
-    outputTokens: typeof last?.outputTokens === "number" ? last.outputTokens : undefined,
-    ...(contextWindowMaxTokens !== undefined ? { contextWindowMaxTokens } : {}),
-    ...(contextWindowUsedTokens !== undefined ? { contextWindowUsedTokens } : {}),
-  };
+  return codexTokenUsage(tokenUsage);
 }
 
 function extractUserText(content: unknown): string | null {
@@ -3494,6 +3477,8 @@ export class CodexAppServerAgentSession implements AgentSession {
   private warnedInvalidNotificationPayloads = new Set<string>();
   private warnedIncompleteEditToolCallIds = new Set<string>();
   private latestUsage: AgentUsage | undefined;
+  private usageState: CodexUsageState;
+  private usagePricingContext: UsagePricingContext = { model: null, serviceTier: null };
   private latestPlanResult: { callId: string; text: string; turnId: string | null } | null = null;
   private readonly userMessageTurnIndexes = new Map<string, number>();
   private readonly userMessageTurnIds: string[] = [];
@@ -3550,6 +3535,7 @@ export class CodexAppServerAgentSession implements AgentSession {
     private readonly autoReviewEnabled: boolean = false,
     private readonly agentId?: string,
     private readonly initialResumePurpose: "interactive" | "history" = "interactive",
+    initialUsage?: AgentUsage,
   ) {
     this.logger = logger.child({
       module: "agent",
@@ -3564,6 +3550,11 @@ export class CodexAppServerAgentSession implements AgentSession {
     this.providerOptions =
       validateProviderOptions("codex", CodexProviderOptionsSchema, config.providerOptions) ?? {};
     this.config = config;
+    this.latestUsage = initialUsage;
+    this.usageState = createCodexUsageState({
+      resumed: resumeHandle !== null,
+      lastUsage: initialUsage,
+    });
     this.harnessEnvironment = deps.environment ?? buildCodexAppServerEnv();
     this.asyncQuestions = new CodexAsyncQuestions(resumeHandle?.metadata?.asyncQuestions);
     this.codexHome = deps.codexHome ?? resolveCodexHomeDir(process.env);
@@ -4223,6 +4214,10 @@ export class CodexAppServerAgentSession implements AgentSession {
       params.effort = thinkingOptionId;
     }
     params.serviceTier = this.serviceTier ?? "default";
+    this.usagePricingContext = {
+      model: this.config.model ?? null,
+      serviceTier: this.serviceTier ?? "default",
+    };
     if (this.resolvedCollaborationMode) {
       params.collaborationMode = {
         mode: this.resolvedCollaborationMode.mode,
@@ -6287,7 +6282,14 @@ export class CodexAppServerAgentSession implements AgentSession {
   private handleTokenUsageUpdatedNotification(
     parsed: Extract<ParsedCodexNotification, { kind: "token_usage_updated" }>,
   ): void {
-    this.latestUsage = toAgentUsage(parsed.tokenUsage);
+    const accumulated = accumulateCodexUsage({
+      state: this.usageState,
+      tokenUsage: parsed.tokenUsage,
+      context: this.usagePricingContext,
+      prices: this.deps.pricing,
+    });
+    this.usageState = accumulated.state;
+    this.latestUsage = accumulated.usage;
     if (this.latestUsage) {
       this.notifySubscribers({
         type: "usage_updated",
@@ -7392,6 +7394,7 @@ export class CodexAppServerAgentClient implements AgentClient {
       autoReviewEnabled,
       launchContext?.agentId,
       options?.purpose ?? "interactive",
+      options?.lastUsage,
     );
     await session.connect();
     return session;

@@ -177,6 +177,8 @@ if (agent.pendingPermissions?.length) {
 console.log(agent.lastUsage?.totalCostUsd, agent.runtimeInfo?.sessionId);
 ```
 
+`lastUsage` is the latest provider snapshot. Its optional `tokenUsageScope` declares the token scope (for example, `session`). `costSource` is `sdk` for SDK-reported costs or `local-estimate` for local API price estimates. When `hasUnknownModelCost` is true, the cost is incomplete and `totalCostUsd` is absent. Missing cost is unknown, not zero.
+
 The handle exposes `status`, `capabilities`, `availableModes`, `pendingPermissions`, `activeTurn`, `lastUsage`, `lastError`, `features`, `runtimeInfo`, `archivedAt`, `workspaceId`, and `cwd` as properties. All of them read the last snapshot the handle observed and never fetch.
 
 A handle from `ref()` has observed nothing, so every one of them is `null` until `refresh()`, `run()`, `waitForFinish()`, a timeline refetch, or `subscribe()` delivers a snapshot. Optional values in an observed snapshot also read as `null`. Use `current()` when you need the whole snapshot or need to distinguish those states.

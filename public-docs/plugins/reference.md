@@ -408,6 +408,8 @@ process, credential, and other machine-local work under `server/`. A plugin with
 
 ### Providers
 
+`ProviderUsage` preserves optional `costSource`, `hasUnknownModelCost`, and `tokenUsageScope` on `session.usage` events. Omit `totalCostUsd` when any usage cannot be priced; an explicit zero remains free usage. SDK costs use `sdk`; locally calculated estimates use `local-estimate`.
+
 Follow [Build a provider plugin](/docs/plugins/providers) for direct and ACP implementations,
 session lifecycle, composer settings, timeline renderers, testing, and distribution.
 

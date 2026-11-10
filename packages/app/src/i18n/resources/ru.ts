@@ -2158,6 +2158,8 @@ export const ru: TranslationResources = {
     used: "Использовано: {{percentage}}%",
     tokens: "Токены: {{used}} / {{max}}",
     sessionCost: "Стоимость сессии: {{cost}}",
+    estimatedSessionCost: "Стоимость сессии: около {{cost}}",
+    unknownSessionCost: "Стоимость сессии неизвестна",
     accessibility: "Использовано {{percentage}}% контекстного окна",
   },
   review: {

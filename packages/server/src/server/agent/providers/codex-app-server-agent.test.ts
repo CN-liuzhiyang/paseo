@@ -2837,6 +2837,7 @@ describe("Codex app-server provider", () => {
     expect(
       toAgentUsage({
         model_context_window: 200000,
+        total: { input_tokens: 100000, cached_input_tokens: 80000, output_tokens: 20000 },
         last: {
           total_tokens: 50000,
           inputTokens: 30000,
@@ -2845,9 +2846,10 @@ describe("Codex app-server provider", () => {
         },
       }),
     ).toEqual({
-      inputTokens: 30000,
-      cachedInputTokens: 5000,
-      outputTokens: 15000,
+      inputTokens: 100000,
+      cachedInputTokens: 80000,
+      outputTokens: 20000,
+      tokenUsageScope: "session",
       contextWindowMaxTokens: 200000,
       contextWindowUsedTokens: 50000,
     });
@@ -2857,6 +2859,7 @@ describe("Codex app-server provider", () => {
     expect(
       toAgentUsage({
         modelContextWindow: 200000,
+        total: { input_tokens: 100000, cached_input_tokens: 80000, output_tokens: 20000 },
         last: {
           totalTokens: 50000,
           inputTokens: 30000,
@@ -2865,9 +2868,10 @@ describe("Codex app-server provider", () => {
         },
       }),
     ).toEqual({
-      inputTokens: 30000,
-      cachedInputTokens: 5000,
-      outputTokens: 15000,
+      inputTokens: 100000,
+      cachedInputTokens: 80000,
+      outputTokens: 20000,
+      tokenUsageScope: "session",
       contextWindowMaxTokens: 200000,
       contextWindowUsedTokens: 50000,
     });
@@ -2876,6 +2880,7 @@ describe("Codex app-server provider", () => {
   test("keeps existing usage behavior when context window fields are missing", () => {
     expect(
       toAgentUsage({
+        total: { input_tokens: 100000, cached_input_tokens: 80000, output_tokens: 20000 },
         last: {
           inputTokens: 30000,
           cachedInputTokens: 5000,
@@ -2883,9 +2888,10 @@ describe("Codex app-server provider", () => {
         },
       }),
     ).toEqual({
-      inputTokens: 30000,
-      cachedInputTokens: 5000,
-      outputTokens: 15000,
+      inputTokens: 100000,
+      cachedInputTokens: 80000,
+      outputTokens: 20000,
+      tokenUsageScope: "session",
     });
   });
 
@@ -2894,6 +2900,7 @@ describe("Codex app-server provider", () => {
       toAgentUsage({
         model_context_window: Number.NaN,
         modelContextWindow: "200000",
+        total: { input_tokens: 100000, cached_input_tokens: 80000, output_tokens: 20000 },
         last: {
           total_tokens: Number.NaN,
           totalTokens: "50000",
@@ -2903,9 +2910,10 @@ describe("Codex app-server provider", () => {
         },
       }),
     ).toEqual({
-      inputTokens: 30000,
-      cachedInputTokens: 5000,
-      outputTokens: 15000,
+      inputTokens: 100000,
+      cachedInputTokens: 80000,
+      outputTokens: 20000,
+      tokenUsageScope: "session",
     });
   });
 
@@ -6860,6 +6868,7 @@ describe("Codex app-server provider", () => {
     await asInternals(session).handleNotification("thread/tokenUsage/updated", {
       tokenUsage: {
         model_context_window: 200000,
+        total: { inputTokens: 100000, cachedInputTokens: 80000, outputTokens: 20000 },
         last: {
           total_tokens: 50000,
           inputTokens: 30000,
@@ -6877,9 +6886,12 @@ describe("Codex app-server provider", () => {
       provider: "codex",
       turnId: "test-turn",
       usage: {
-        inputTokens: 30000,
-        cachedInputTokens: 5000,
-        outputTokens: 15000,
+        inputTokens: 100000,
+        cachedInputTokens: 80000,
+        outputTokens: 20000,
+        tokenUsageScope: "session",
+        costSource: "local-estimate",
+        hasUnknownModelCost: true,
         contextWindowMaxTokens: 200000,
         contextWindowUsedTokens: 50000,
       },
@@ -6889,9 +6901,12 @@ describe("Codex app-server provider", () => {
       provider: "codex",
       turnId: "test-turn",
       usage: {
-        inputTokens: 30000,
-        cachedInputTokens: 5000,
-        outputTokens: 15000,
+        inputTokens: 100000,
+        cachedInputTokens: 80000,
+        outputTokens: 20000,
+        tokenUsageScope: "session",
+        costSource: "local-estimate",
+        hasUnknownModelCost: true,
         contextWindowMaxTokens: 200000,
         contextWindowUsedTokens: 50000,
       },
@@ -7824,6 +7839,56 @@ test("publishes a materialized image before dispatching the following turn compl
     if (imageEvent.type !== "timeline" || imageEvent.item.type !== "assistant_message")
       throw new Error("Expected image");
     expect(existsSync(markdownImageSource(imageEvent.item.text))).toBe(true);
+  } finally {
+    await session.close();
+  }
+});
+
+test("applies configured pricing through the public Codex session event stream", async () => {
+  const appServer = createFakeCodexAppServer();
+  const rule = {
+    model: "gpt-5.4",
+    serviceTier: "default",
+    minInputTokens: 0,
+    input: 0,
+    cachedInput: 0,
+    output: 0,
+  };
+  const session = new CodexAppServerAgentSession(
+    createConfig(),
+    null,
+    createTestLogger(),
+    async () => appServer.child,
+    { pricing: [rule] },
+  );
+  try {
+    await session.connect();
+    await session.startTurn("pricing test");
+    const usage = new Promise<AgentStreamEvent>((resolve) => {
+      const off = session.subscribe((event) => {
+        if (event.type === "usage_updated") {
+          off();
+          resolve(event);
+        }
+      });
+    });
+    const tokens = { inputTokens: 100, cachedInputTokens: 80, outputTokens: 10 };
+    appServer.child.stdout.write(
+      JSON.stringify({
+        method: "thread/tokenUsage/updated",
+        params: { threadId: session.id, tokenUsage: { total: tokens, last: tokens } },
+      }) + "\n",
+    );
+    expect(await usage).toMatchObject({
+      type: "usage_updated",
+      usage: {
+        totalCostUsd: 0,
+        hasUnknownModelCost: false,
+        costSource: "local-estimate",
+        inputTokens: 100,
+      },
+    });
+    appServer.assertNoErrors();
   } finally {
     await session.close();
   }

@@ -433,11 +433,14 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
   })
   .catchall(z.boolean());
 
-const AgentUsageSchema: z.ZodType<AgentUsage> = z.object({
+export const AgentUsageSchema: z.ZodType<AgentUsage> = z.object({
   inputTokens: z.number().optional(),
   cachedInputTokens: z.number().optional(),
   outputTokens: z.number().optional(),
   totalCostUsd: z.number().optional(),
+  costSource: z.string().optional(),
+  hasUnknownModelCost: z.boolean().optional(),
+  tokenUsageScope: z.string().optional(),
   contextWindowMaxTokens: z.number().optional(),
   contextWindowUsedTokens: z.number().optional(),
 });
