@@ -4,6 +4,7 @@ import { addJsonAndDaemonHostOptions } from "../../utils/command-options.js";
 import { runArchiveCommand } from "./archive.js";
 import { runCreateCommand } from "./create.js";
 import { runLsCommand } from "./ls.js";
+import { runLabelCommand } from "./label.js";
 import { runRenameCommand } from "./rename.js";
 import { runSetupCommand } from "./setup.js";
 
@@ -45,6 +46,17 @@ export function createWorkspaceCommand(): Command {
       .description("List active workspaces")
       .option("--background", "Include background workspaces"),
   ).action(withOutput(runLsCommand));
+
+  addJsonAndDaemonHostOptions(
+    workspace
+      .command("label")
+      .description("Assign or remove a workspace label")
+      .argument("<workspace-id>", "Workspace id")
+      .argument("<name>", "Label name")
+      .option("--color <color>", "Color for a new label")
+      .option("--remove", "Remove the label from the workspace")
+      .allowExcessArguments(false),
+  ).action(withOutput(runLabelCommand, { singleLineErrors: true }));
 
   addJsonAndDaemonHostOptions(
     workspace
