@@ -29,9 +29,10 @@ const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 // zh-CN docs that must mirror every English section, so the fork's docs for those three extension
 // points are carried twice. Raised to 175/11200 on 2026-11-10 for cumulative Codex session
 // tokens and estimated API cost, a generic upstreamable provider usage change. Reduce the
-// budget when upstream absorbs this patch. Current delta: 169 files / 10881 lines.
-const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 175);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 11200);
+// budget when upstream absorbs this patch. Current delta: 169 files / 10881 lines. Raised to 180/11400
+// on 2026-11-10 for `paseo workspace label`, a generic CLI for the daemon's existing workspace labels.
+const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 180);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 11400);
 
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are
