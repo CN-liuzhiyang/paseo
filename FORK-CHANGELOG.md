@@ -9,6 +9,16 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.6.0 - 2026-11-10
+
+Carries upstream v0.15.3; see the upstream [CHANGELOG](https://github.com/getpaseo/paseo/blob/v0.15.3/CHANGELOG.md).
+
+### Added
+
+- Codex sessions show cumulative tokens and estimated cost using public API prices, with provider pricing overrides. Historical sessions without a baseline show an unknown cost.
+- Orchestration and affairs panels count cumulative cost snapshots without double-counting.
+- Claude Fable 5.2.
+
 ## 1.5.2 - 2026-11-04
 
 Carries upstream v0.14.0-beta.2, the same base as 1.5.1.
