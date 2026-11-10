@@ -9,6 +9,14 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.6.1 - 2026-11-10
+
+Same upstream base as 1.6.0 (v0.15.3).
+
+### Added
+
+- `paseo workspace label <workspace-id> <name> [--color <color>] [--remove]` assigns or removes a workspace label from the CLI, and `paseo workspace ls --json` lists each workspace's labels.
+
 ## 1.6.0 - 2026-11-10
 
 Carries upstream v0.15.3; see the upstream [CHANGELOG](https://github.com/getpaseo/paseo/blob/v0.15.3/CHANGELOG.md).
