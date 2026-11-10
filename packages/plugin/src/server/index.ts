@@ -20,8 +20,15 @@ export type {
   PluginSettingsState,
 } from "./contracts.js";
 export type {
+  PluginHooks,
+  PluginHookEvents,
+  PluginHookRequests,
+  PluginHookPayload,
+  PluginHookResult,
   PluginHookContext,
   PluginHookWorkspace,
+  PluginHookWorktree,
+  PluginWorktreeCreateRequest,
   PluginHookAgent,
   PluginSessionOpenRequest,
   PluginTurnOutcome,
