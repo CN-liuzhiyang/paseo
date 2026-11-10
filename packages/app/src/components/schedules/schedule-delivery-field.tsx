@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactElement } from "react";
 import type { ScheduleDelivery } from "@getpaseo/protocol/schedule/types";
 import { ComboboxItem } from "@/components/ui/combobox";
-import type { FieldControlSize } from "@/components/ui/control-geometry";
+import type { ControlSize } from "@/components/ui/control-geometry";
 import {
   SelectField,
   type SelectFieldDisplay,
@@ -23,7 +23,7 @@ interface ScheduleDeliveryFieldProps {
   serverId: string;
   value: ScheduleDelivery | null;
   onChange: (value: ScheduleDelivery | null) => void;
-  size: FieldControlSize;
+  size: ControlSize;
 }
 
 /**
