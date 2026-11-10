@@ -79,6 +79,7 @@ function extractOutputOptions(options: CommandOptions): OutputOptions {
  */
 export function withOutput<T, Args extends unknown[]>(
   handler: (...args: [...Args, CommandOptions, Command]) => Promise<AnyCommandResult<T>>,
+  config?: { singleLineErrors?: boolean },
 ): (...args: [...Args, CommandOptions, Command]) => Promise<void> {
   return withGlobalOptions(async (...args) => {
     const options = args[args.length - 2] as CommandOptions;
@@ -93,7 +94,13 @@ export function withOutput<T, Args extends unknown[]>(
       }
     } catch (error) {
       const commandError = toCommandError(error);
-      const errorOutput = renderError(commandError, outputOptions);
+      let errorOutput = renderError(commandError, outputOptions);
+      if (config?.singleLineErrors) {
+        errorOutput =
+          outputOptions.format === "json"
+            ? JSON.stringify({ error: commandError })
+            : `Error: ${commandError.message.replace(/\s*[\r\n]+\s*/g, " ")}`;
+      }
       process.stderr.write(errorOutput + "\n");
       process.exit(1);
     }
