@@ -3034,6 +3034,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 700,
         outputTokens: 400,
         totalCostUsd: 0.25,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
         contextWindowUsedTokens: 175,
       });
@@ -3075,6 +3076,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 5,
         outputTokens: 7,
         totalCostUsd: 0.25,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
         contextWindowUsedTokens: 175,
       });
@@ -3190,6 +3192,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 16_999,
         outputTokens: 171,
         totalCostUsd: 0.25,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
         contextWindowUsedTokens: 17_261,
       });
@@ -3235,6 +3238,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 600,
         outputTokens: 700,
         totalCostUsd: 0.25,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
         contextWindowUsedTokens: 117,
       });
@@ -3273,6 +3277,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 5,
         outputTokens: 7,
         totalCostUsd: 0.25,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
         contextWindowUsedTokens: 175,
       });
@@ -3281,6 +3286,7 @@ describe("ClaudeAgentSession context window usage", () => {
         cachedInputTokens: 200,
         outputTokens: 300,
         totalCostUsd: 0.1,
+        costSource: "sdk",
         contextWindowMaxTokens: 200_000,
       });
     } finally {
@@ -3594,6 +3600,7 @@ describe("ClaudeAgentSession context window usage", () => {
             cachedInputTokens: 0,
             outputTokens: 0,
             totalCostUsd: 0.04,
+            costSource: "sdk",
             contextWindowMaxTokens: 200_000,
             contextWindowUsedTokens: 704,
           },
@@ -3647,6 +3654,7 @@ describe("ClaudeAgentSession context window usage", () => {
             cachedInputTokens: 0,
             outputTokens: 0,
             totalCostUsd: 0.04,
+            costSource: "sdk",
             contextWindowMaxTokens: 200_000,
             contextWindowUsedTokens: 704,
           },
