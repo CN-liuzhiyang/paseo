@@ -1481,7 +1481,9 @@ export async function createPaseoDaemon(
     workspaces: workspaceRegistry,
     onError: (error) => logger.error({ err: error }, "Automation source scan failed"),
   });
-  await scheduleService.sources.start();
+  await scheduleService.sources
+    .start()
+    .catch((error) => logger.error({ err: error }, "Automation sources failed to start"));
   await scheduleService.start();
   const automationTriggers = new AutomationTriggers({
     paseoHome: config.paseoHome,

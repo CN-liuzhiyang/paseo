@@ -380,6 +380,7 @@ export class ScheduleService {
     id: string | undefined,
     input: CreateScheduleInput,
     source: NonNullable<StoredSchedule["source"]>,
+    preserveState = false,
   ): Promise<StoredSchedule> {
     validateAutomationTriggers(input.triggers ?? []);
     validateScheduleCadence(input.cadence);
@@ -388,7 +389,7 @@ export class ScheduleService {
       prompt: normalizePrompt(input.prompt),
       target: await this.resolveCreateTarget(input.target),
     };
-    const record = { ...this.buildScheduleRecord(input, fields), source };
+    const record = { ...this.buildScheduleRecord(input, fields), source, pauseReason: undefined };
     if (!id) {
       id = (await this.list()).find(
         (s) =>
@@ -398,14 +399,26 @@ export class ScheduleService {
     }
     if (!id) return this.store.create(record);
     return requireSchedule(
-      await this.store.update(id, (current) => ({
-        ...current,
-        ...record,
-        runs: current.runs,
-        createdAt: current.createdAt,
-        lastRunAt: current.lastRunAt,
-        lastDelivery: current.lastDelivery,
-      })),
+      await this.store.update(id, (current) => {
+        const next = {
+          ...current,
+          ...record,
+          runs: current.runs,
+          createdAt: current.createdAt,
+          lastRunAt: current.lastRunAt,
+          lastDelivery: current.lastDelivery,
+        };
+        if (preserveState)
+          Object.assign(next, {
+            status: current.status,
+            pausedAt: current.pausedAt,
+            pauseReason: current.pauseReason,
+            nextRunAt: current.nextRunAt,
+          });
+        else if (current.pauseReason === "rate-limit")
+          next.eventRateLimitRunOffset = current.runs.length;
+        return next;
+      }),
       id,
     );
   }
@@ -617,13 +630,13 @@ export class ScheduleService {
     return [...schedule.runs].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   }
 
-  async pause(id: string, reason?: string): Promise<StoredSchedule> {
+  async pause(id: string, reason?: string, overwriteReason = false): Promise<StoredSchedule> {
     const paused = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
         if (reason?.startsWith("source-")) return schedule;
         throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
       }
-      if (schedule.status === "paused" && (!reason || schedule.pauseReason === reason)) {
+      if (schedule.status === "paused" && !overwriteReason) {
         return schedule;
       }
       const now = this.now();
@@ -639,8 +652,8 @@ export class ScheduleService {
     return requireSchedule(paused, id);
   }
 
-  async resume(id: string): Promise<StoredSchedule> {
-    if ((await this.inspect(id)).source)
+  async resume(id: string, approvedSource = false): Promise<StoredSchedule> {
+    if (!approvedSource && (await this.inspect(id)).source)
       throw new Error("Use source enable --fingerprint to resume a project automation");
     const resumed = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
@@ -758,7 +771,9 @@ export class ScheduleService {
     return retry ? null : requireSchedule(next, input.id);
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, fromSource = false): Promise<void> {
+    if (!fromSource && (await this.inspect(id)).source)
+      throw new Error("Use source forget to delete a project automation");
     await this.store.delete(id);
   }
 

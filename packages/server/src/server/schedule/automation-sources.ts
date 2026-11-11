@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -28,13 +28,21 @@ import type {
   ProjectRegistry,
   WorkspaceRegistry,
 } from "../workspace-registry.js";
-import type { ScheduleService } from "./service.js";
+import { ScheduleNotFoundError, type ScheduleService } from "./service.js";
 
 const DefinitionSchema = z
   .object({
     name: z.string().optional(),
     prompt: z.string().min(1),
-    target: ScheduleTargetSchema,
+    target: z.discriminatedUnion("type", [
+      ScheduleTargetSchema.options[2],
+      z
+        .object({
+          type: z.literal("new-agent"),
+          config: ScheduleTargetSchema.options[1].shape.config.pick({ title: true }).strict(),
+        })
+        .strict(),
+    ]),
     triggers: z
       .array(
         z.discriminatedUnion("type", [
@@ -62,6 +70,12 @@ const StateSchema = z.record(
   z.object({ checkout: z.string(), entries: z.record(z.string(), EntrySchema) }),
 );
 type State = z.infer<typeof StateSchema>;
+type Entry = z.infer<typeof EntrySchema>;
+function message(error: unknown): string {
+  return (error instanceof z.ZodError ? error.issues[0].message : String(error))
+    .replace(/\s+/g, " ")
+    .slice(0, 240);
+}
 export interface SourceCaller {
   transport?: string;
   plugin?: boolean;
@@ -91,6 +105,7 @@ function hash(value: unknown): string {
 
 export class AutomationSources {
   private state: State = {};
+  private errors = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
   private timer?: ReturnType<typeof setInterval>;
   private readonly path: string;
@@ -109,9 +124,13 @@ export class AutomationSources {
     try {
       this.state = StateSchema.parse(JSON.parse(await readFile(this.path, "utf8")));
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        this.options.onError(error);
+        await rename(this.path, this.path + ".corrupt-" + Date.now()).catch(this.options.onError);
+        this.state = {};
+      }
     }
-    await this.scan();
+    await this.scan().catch(this.options.onError);
     this.timer = setInterval(() => {
       void this.scan().catch(this.options.onError);
     }, 600_000);
@@ -138,7 +157,9 @@ export class AutomationSources {
           automationId,
           checkout: project.checkout,
         });
-        return Object.assign(result, { error: this.availability(result) });
+        return Object.assign(result, {
+          error: this.errors.get(projectKey) ?? this.availability(result),
+        });
       }),
     );
   }
@@ -147,6 +168,7 @@ export class AutomationSources {
   }
   private availability(source: AutomationSource): string | undefined {
     try {
+      if (!/^[a-z][a-z0-9-]*$/.test(source.automationId)) return "Invalid automation ID";
       const def = DefinitionSchema.parse(source.definition);
       const target = def.target;
       if (
@@ -164,7 +186,7 @@ export class AutomationSources {
           return `缺少插件：${trigger.source}:${trigger.event}`;
       return undefined;
     } catch (error) {
-      return String(error);
+      return message(error);
     }
   }
   scan(): Promise<AutomationSource[]> {
@@ -174,6 +196,7 @@ export class AutomationSources {
     });
   }
   private async readProjects(): Promise<void> {
+    this.errors.clear();
     const found = new Set<string>();
     const projects = await this.options.projects.list();
     const workspaces = await this.options.workspaces.list();
@@ -183,29 +206,54 @@ export class AutomationSources {
         await this.readProject(project, workspaces, visited, found);
       } catch (error) {
         this.options.onError(error);
+        this.retainProject(project, workspaces, found, error);
       }
     }
     for (const [key, project] of Object.entries(this.state))
       for (const [id, entry] of Object.entries(project.entries)) {
         if (!found.has(`${key}#${id}`)) {
-          if (entry.scheduleId && entry.state !== "orphaned")
-            await this.options.service.pause(entry.scheduleId, "source-orphaned");
-          entry.state = "orphaned";
+          const hadSchedule = !!entry.scheduleId;
+          if (entry.state !== "orphaned")
+            await this.useSchedule(entry, (scheduleId) =>
+              this.options.service.pause(scheduleId, "source-orphaned", true),
+            );
+          if (!hadSchedule || entry.scheduleId) entry.state = "orphaned";
         }
       }
+    for (const local of Object.values(this.state))
+      for (const entry of Object.values(local.entries))
+        await this.useSchedule(entry, (id) => this.options.service.inspect(id));
     // Recover a crash between writing a generated schedule and saving its local approval.
     for (const schedule of await this.options.service.list()) {
       if (!schedule.source) continue;
       const entry = this.state[schedule.source.projectKey]?.entries[schedule.source.automationId];
       if (entry) entry.scheduleId = schedule.id;
       if (
-        !entry ||
-        entry.state !== "enabled" ||
-        entry.approvedFingerprint !== schedule.source.fingerprint
+        schedule.status === "active" &&
+        (!entry ||
+          entry.state !== "enabled" ||
+          entry.approvedFingerprint !== schedule.source.fingerprint)
       )
-        await this.options.service.pause(schedule.id, "source-changed");
+        await this.options.service.pause(schedule.id, "source-changed").catch(this.options.onError);
     }
     await this.save();
+  }
+  private retainProject(
+    project: PersistedProjectRecord,
+    workspaces: PersistedWorkspaceRecord[],
+    found: Set<string>,
+    error: unknown,
+  ) {
+    for (const [key, local] of Object.entries(this.state)) {
+      const root =
+        workspaces.find((w) => w.projectId === project.projectId)?.mainRepoRoot ?? project.rootPath;
+      if (getRealpathAwareRelativePath(local.checkout, root) !== "") continue;
+      this.retain(key, found, error);
+    }
+  }
+  private retain(key: string, found: Set<string>, error: unknown) {
+    this.errors.set(key, message(error));
+    for (const id of Object.keys(this.state[key]?.entries ?? {})) found.add(key + "#" + id);
   }
   private async readSourceFile(
     root: string,
@@ -222,21 +270,13 @@ export class AutomationSources {
         ]
           .filter(Boolean)
           .join("/");
-        return (
-          await runGitCommand(["show", `${branch}:${path}`], {
-            cwd: checkout,
-            envOverlay: READ_ONLY_GIT_ENV,
-          })
-        ).stdout;
+        const options = { cwd: checkout, envOverlay: READ_ONLY_GIT_ENV };
+        const tree = await runGitCommand(["ls-tree", "--name-only", branch, "--", path], options);
+        if (!tree.stdout.trim()) return null;
+        return (await runGitCommand(["show", branch + ":" + path], options)).stdout;
       } else return await readFile(join(checkout, "paseo.json"), "utf8");
     } catch (error) {
-      // A missing file is a removed source. Other read errors must not approve stale content.
-      if (
-        (error as NodeJS.ErrnoException).code !== "ENOENT" &&
-        !String(error).includes("does not exist") &&
-        !String(error).includes("exists on disk, but not in")
-      )
-        throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return null;
     }
   }
@@ -260,9 +300,13 @@ export class AutomationSources {
     if (visited.has(projectKey)) return;
     visited.add(projectKey);
     const checkout = facts.isGit ? (facts.mainRepoRoot ?? root) : root;
-    const text = await this.readSourceFile(root, checkout, facts);
-    if (text === null) return;
-    await this.remember(projectKey, checkout, text, found);
+    try {
+      const text = await this.readSourceFile(root, checkout, facts);
+      if (text !== null) await this.remember(projectKey, checkout, text, found);
+    } catch (error) {
+      this.options.onError(error);
+      this.retain(projectKey, found, error);
+    }
   }
   private async remember(
     projectKey: string,
@@ -270,22 +314,70 @@ export class AutomationSources {
     text: string,
     found: Set<string>,
   ): Promise<void> {
-    const definitions = z
-      .record(z.string().regex(/^[a-z][a-z0-9-]*$/), z.record(z.string(), z.unknown()))
-      .parse(JSON.parse(text).automations ?? {});
+    const definitions = z.record(z.string(), z.unknown()).parse(JSON.parse(text).automations ?? {});
     const local = (this.state[projectKey] ??= { checkout, entries: {} });
     local.checkout = checkout;
-    for (const [id, definition] of Object.entries(definitions)) {
+    for (const [id, raw] of Object.entries(definitions)) {
+      const parsed = z.record(z.string(), z.unknown()).safeParse(raw);
+      const definition = parsed.success ? parsed.data : { invalid: raw };
       found.add(`${projectKey}#${id}`);
       const fingerprint = hash(definition);
       const previous = Object.hasOwn(local.entries, id) ? local.entries[id] : undefined;
       if (!previous)
         local.entries[id] = { state: "pending", seenFingerprint: fingerprint, definition };
       else if (previous.seenFingerprint !== fingerprint || previous.state === "orphaned") {
-        if (previous.scheduleId)
-          await this.options.service.pause(previous.scheduleId, "source-changed");
-        Object.assign(previous, { state: "pending", seenFingerprint: fingerprint, definition });
+        const restored =
+          previous.state === "orphaned" && fingerprint === previous.approvedFingerprint;
+        Object.assign(previous, {
+          state: restored ? "enabled" : "pending",
+          seenFingerprint: fingerprint,
+          definition,
+        });
+        await this.useSchedule(previous, (scheduleId) =>
+          restored
+            ? this.options.service.resume(scheduleId, true)
+            : this.options.service.pause(scheduleId, "source-changed", true),
+        );
       }
+    }
+  }
+  private async useSchedule(
+    entry: Entry,
+    operation: (id: string) => Promise<unknown>,
+    reportOnly = true,
+  ): Promise<void> {
+    if (!entry.scheduleId) return;
+    try {
+      await operation(entry.scheduleId);
+    } catch (error) {
+      if (error instanceof ScheduleNotFoundError) {
+        delete entry.scheduleId;
+        entry.state = "pending";
+      } else if (reportOnly) this.options.onError(error);
+      else throw error;
+    }
+  }
+  private async apply(source: AutomationSource, preserveState = false) {
+    try {
+      return await this.options.service.applySource(
+        source.scheduleId,
+        this.input(source),
+        {
+          kind: "project",
+          projectKey: source.projectKey,
+          automationId: source.automationId,
+          fingerprint: source.seenFingerprint,
+        },
+        preserveState,
+      );
+    } catch (error) {
+      if (error instanceof ScheduleNotFoundError) {
+        const entry = this.state[source.projectKey].entries[source.automationId];
+        delete entry.scheduleId;
+        entry.state = "pending";
+        await this.save();
+      }
+      throw error;
     }
   }
   private resolve(id: string): AutomationSource {
@@ -300,21 +392,24 @@ export class AutomationSources {
     const clocks = def.triggers.filter((t) => t.type !== "event");
     if (clocks.length > 1) throw new Error("Only one clock trigger is allowed");
     const overrides = source.overrides ?? {};
-    let target = def.target;
+    this.validateOverrides(def.target.type, def.delivery?.channel, overrides);
+    if (def.target.type === "new-agent" && !overrides.provider)
+      throw new Error("Set a local provider with source set --provider");
+    let target: CreateScheduleInput["target"] =
+      def.target.type === "action"
+        ? def.target
+        : {
+            type: "new-agent",
+            config: {
+              ...def.target.config,
+              provider: overrides.provider ?? "",
+              model: overrides.model,
+              isolation: "local",
+              cwd: source.checkout,
+            },
+          };
     if (target.type === "action")
       target = { ...target, params: { ...target.params, ...overrides.params } };
-    if (target.type === "new-agent")
-      target = {
-        ...target,
-        config: {
-          ...target.config,
-          cwd: source.checkout,
-          ...(overrides.provider ? { provider: overrides.provider } : {}),
-          ...(overrides.model ? { model: overrides.model } : {}),
-          workspaceId: undefined,
-          isolation: "local",
-        },
-      };
     if (def.delivery && !overrides.delivery)
       throw new Error("Set a local delivery recipient with source set --deliver");
     return {
@@ -326,13 +421,26 @@ export class AutomationSources {
       runOnCreate: false,
     };
   }
+  private validateOverrides(
+    type: string,
+    channel: string | undefined,
+    overrides: AutomationSourceOverrides,
+  ): void {
+    if (overrides.delivery && overrides.delivery.channel !== channel)
+      throw new Error("Delivery channel must match paseo.json");
+    if (
+      (type === "action" && (overrides.provider || overrides.model)) ||
+      (type === "new-agent" && overrides.params && Object.keys(overrides.params).length)
+    )
+      throw new Error("Overrides do not apply to this target");
+  }
   async request(
     operation: string,
     options: { id?: string; fingerprint?: string; overrides?: AutomationSourceOverrides },
     caller: SourceCaller,
   ): Promise<AutomationSource[]> {
     return this.serial(async () => {
-      if (operation === "enable") assertSourceApproval(caller);
+      if (operation === "enable" || operation === "set") assertSourceApproval(caller);
       if (operation === "scan" || operation === "enable") await this.readProjects();
       if (operation === "list" || operation === "scan") return this.list();
       const source = this.resolve(options.id ?? "");
@@ -341,16 +449,7 @@ export class AutomationSources {
         if (source.state === "orphaned" || options.fingerprint !== source.seenFingerprint)
           throw new Error("Source fingerprint changed; scan and review before enabling");
         if (source.error) throw new Error(source.error);
-        const schedule = await this.options.service.applySource(
-          source.scheduleId,
-          this.input(source),
-          {
-            kind: "project",
-            projectKey: source.projectKey,
-            automationId: source.automationId,
-            fingerprint: source.seenFingerprint,
-          },
-        );
+        const schedule = await this.apply(source);
         Object.assign(entry, {
           scheduleId: schedule.id,
           state: "enabled",
@@ -358,8 +457,8 @@ export class AutomationSources {
           approvedDefinition: source.definition,
         });
       } else if (operation === "disable") {
-        if (entry.scheduleId) await this.options.service.pause(entry.scheduleId);
         if (entry.state !== "orphaned") entry.state = "disabled";
+        await this.useSchedule(entry, (id) => this.options.service.pause(id), false);
       } else if (operation === "set") {
         const patch = AutomationSourceOverridesSchema.parse(options.overrides);
         const overrides = {
@@ -367,20 +466,13 @@ export class AutomationSources {
           ...patch,
           params: { ...entry.overrides?.params, ...patch.params },
         };
+        const def = DefinitionSchema.parse(source.definition);
+        this.validateOverrides(def.target.type, def.delivery?.channel, overrides);
         if (entry.state === "enabled")
-          await this.options.service.applySource(
-            entry.scheduleId,
-            this.input({ ...source, overrides }),
-            {
-              kind: "project",
-              projectKey: source.projectKey,
-              automationId: source.automationId,
-              fingerprint: source.seenFingerprint,
-            },
-          );
+          await this.useSchedule(entry, () => this.apply({ ...source, overrides }, true), false);
         entry.overrides = overrides;
       } else if (operation === "forget") {
-        if (entry.scheduleId) await this.options.service.delete(entry.scheduleId);
+        await this.useSchedule(entry, (id) => this.options.service.delete(id, true), false);
         delete this.state[source.projectKey].entries[source.automationId];
       }
       await this.save();
