@@ -14,6 +14,28 @@ import {
 } from "@getpaseo/plugin/server/provider";
 import type { ChannelDelivery, ChannelMessage } from "@getpaseo/plugin/server";
 import { z } from "zod";
+import {
+  RunTriggerSchema,
+  TriggerEventSchema,
+  TriggerSourceRegistrationSchema,
+  ScheduleActionSchema,
+} from "@getpaseo/protocol/schedule/types";
+import type { TriggerEvent, TriggerSourceRegistration } from "@getpaseo/protocol/schedule/types";
+import type { ActionInput } from "@getpaseo/plugin/server";
+
+export const PluginActionMetadataSchema = ScheduleActionSchema.omit({ pluginId: true });
+export type PluginActionMetadata = z.infer<typeof PluginActionMetadataSchema>;
+export const ActionInputSchema = z.object({
+  params: z.record(z.string(), z.unknown()),
+  prompt: z.string(),
+  run: z.object({
+    automationId: z.string(),
+    automationName: z.string().nullable(),
+    runId: z.string(),
+  }),
+  trigger: RunTriggerSchema,
+  cwd: z.string().nullable(),
+});
 
 export interface PluginChannelMetadata {
   id: string;
@@ -38,6 +60,14 @@ export interface PluginUsageSourceMetadata {
 }
 
 export type PluginProcessRequest =
+  | {
+      type: "action.validate";
+      requestId: string;
+      actionId: string;
+      params: Record<string, unknown>;
+    }
+  | { type: "action.run"; requestId: string; actionId: string; input: ActionInput }
+  | { type: "action.cancel"; requestId: string }
   | { type: "tool.call"; requestId: string; agent: PluginHookAgent; name: string; input: unknown }
   | { type: "tool.cancel"; requestId: string }
   | { type: "tools.detach"; agentId: string }
@@ -88,6 +118,9 @@ export type PluginProcessRequest =
   | { type: "paseo_close" };
 
 export type PluginProcessMessage =
+  | { type: "actions.changed"; actions: PluginActionMetadata[] }
+  | { type: "triggers.changed"; triggerSources: TriggerSourceRegistration[] }
+  | { type: "trigger.emit.request"; requestId: string; sourceId: string; event: TriggerEvent }
   | { type: "settings.changed"; settingsId: string }
   | { type: "hooks.changed"; hooks: string[] }
   | { type: "channels.changed"; channels: PluginChannelMetadata[] }
@@ -105,6 +138,8 @@ export type PluginProcessMessage =
       usageSources?: PluginUsageSourceMetadata[];
       hooks?: string[];
       channels?: PluginChannelMetadata[];
+      actions?: PluginActionMetadata[];
+      triggerSources?: TriggerSourceRegistration[];
     }
   | { type: "result"; requestId: string; output: unknown }
   | { type: "error"; requestId: string; error: string }
@@ -205,6 +240,23 @@ const frameFields = {
 export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.discriminatedUnion(
   "type",
   [
+    z
+      .object({
+        type: z.literal("action.validate"),
+        requestId: z.string(),
+        actionId: z.string(),
+        params: z.record(z.string(), z.unknown()),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("action.run"),
+        requestId: z.string(),
+        actionId: z.string(),
+        input: ActionInputSchema,
+      })
+      .strict(),
+    z.object({ type: z.literal("action.cancel"), requestId: z.string() }).strict(),
     z
       .object({
         type: z.literal("tool.call"),
@@ -349,6 +401,23 @@ export const PluginProcessRequestSchema: z.ZodType<PluginProcessRequest> = z.dis
 export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.discriminatedUnion(
   "type",
   [
+    z
+      .object({ type: z.literal("actions.changed"), actions: z.array(PluginActionMetadataSchema) })
+      .strict(),
+    z
+      .object({
+        type: z.literal("triggers.changed"),
+        triggerSources: z.array(TriggerSourceRegistrationSchema),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("trigger.emit.request"),
+        requestId: z.string(),
+        sourceId: z.string(),
+        event: TriggerEventSchema,
+      })
+      .strict(),
     z.object({ type: z.literal("settings.changed"), settingsId: z.string() }).strict(),
     z.object({ type: z.literal("hooks.changed"), hooks: hooksSchema }).strict(),
     z
@@ -371,6 +440,8 @@ export const PluginProcessMessageSchema: z.ZodType<PluginProcessMessage> = z.dis
         usageSources: z.array(usageSourceMetadataSchema).optional(),
         hooks: hooksSchema.optional(),
         channels: z.array(channelMetadataSchema).optional(),
+        actions: z.array(PluginActionMetadataSchema).optional(),
+        triggerSources: z.array(TriggerSourceRegistrationSchema).optional(),
       })
       .strict(),
     z

@@ -1,4 +1,9 @@
+import { requireSourcesSupport } from "./source.js";
 import { describe, expect, test, vi } from "vitest";
+import { Command } from "commander";
+import * as scheduleShared from "./shared.js";
+import { runRunOnceCommand } from "./run-once.js";
+import { runUpdateCommand } from "./update.js";
 
 import { selectDaemonTarget } from "../../utils/daemon-target.js";
 
@@ -16,6 +21,9 @@ import {
   parseScheduleUpdateInput,
   requireScheduleWorkspaceSupport,
   toScheduleRow,
+  parseOn,
+  parseParams,
+  requireAutomationsSupport,
 } from "./shared.js";
 import type { ScheduleDaemonClient, ScheduleRecord } from "./types.js";
 
@@ -273,6 +281,58 @@ describe("schedule workspace output", () => {
     ...record,
     target: { type: "new-agent", config: { provider: "claude", cwd: "/project" } },
   };
+
+  test("CLI blocks heartbeat run-once and sends action patches without inspecting", async () => {
+    const unused = vi.fn(async () => {
+      throw new Error("unexpected call");
+    });
+    const scheduleInspect = vi.fn(async () => ({
+      requestId: "inspect",
+      error: null,
+      schedule: { ...record, target: { type: "agent" as const, agentId: "heartbeat" } },
+    }));
+    const scheduleUpdate = vi.fn(async () => ({
+      requestId: "update",
+      error: null,
+      schedule: record,
+    }));
+    const client: ScheduleDaemonClient = {
+      getLastServerInfoMessage: () => ({ features: { automations: true } }),
+      scheduleInspect,
+      scheduleUpdate,
+      scheduleCreate: unused,
+      scheduleList: unused,
+      scheduleLogs: unused,
+      schedulePause: unused,
+      scheduleResume: unused,
+      scheduleDelete: unused,
+      scheduleRunOnce: unused,
+      scheduleChannels: unused,
+      close: async () => {},
+    };
+    const connection = vi
+      .spyOn(scheduleShared, "connectScheduleClient")
+      .mockResolvedValue({ client, host: "test" });
+    try {
+      await expect(runRunOnceCommand(record.id, baseOptions, new Command())).rejects.toMatchObject({
+        code: "SCHEDULE_RUN_ONCE_FAILED",
+      });
+      expect(unused).not.toHaveBeenCalled();
+      scheduleInspect.mockClear();
+      await runUpdateCommand(
+        record.id,
+        { daemonTarget: baseOptions.daemonTarget, timeout: "5s" },
+        new Command(),
+      );
+      expect(scheduleInspect).not.toHaveBeenCalled();
+      expect(scheduleUpdate).toHaveBeenCalledWith({
+        id: record.id,
+        actionConfig: { timeoutMs: 5000 },
+      });
+    } finally {
+      connection.mockRestore();
+    }
+  });
 
   test("ls rows carry the workspace, or null when the schedule creates its own", () => {
     expect(toScheduleRow(record).workspace).toBe("wks_weekly");
@@ -586,5 +646,71 @@ describe("compileEveryPresetToCron", () => {
 
   test.each(["15minutes", "junk15m", "1h-nope"])("rejects malformed preset %s", (value) => {
     expect(() => compileEveryPresetToCron(value)).toThrow("Invalid duration format");
+  });
+});
+
+describe("automation flags", () => {
+  test("sends only the requested action patch fields", () => {
+    expect(parseScheduleUpdateInput({ id: "one", timeout: "5s" })).toEqual({
+      id: "one",
+      actionConfig: { timeoutMs: 5000 },
+    });
+    expect(parseScheduleUpdateInput({ id: "one", param: ["text=hi"] })).toEqual({
+      id: "one",
+      actionConfig: { params: { text: "hi" } },
+    });
+    expect(parseScheduleUpdateInput({ id: "one", action: "other" })).toEqual({
+      id: "one",
+      actionConfig: { action: "other" },
+    });
+  });
+  test("parses event filters and typed parameters", () => {
+    expect(parseOn(["demo:ping,sender=alice,count=2,enabled=true"])).toEqual([
+      {
+        type: "event",
+        source: "demo",
+        event: "ping",
+        match: { sender: "alice", count: 2, enabled: true },
+      },
+    ]);
+    expect(
+      parseParams({
+        paramsJson: '{"nested":{"value":1},"text":"old"}',
+        param: ["text=hi", "count=2", "enabled=false"],
+      }),
+    ).toEqual({ nested: { value: 1 }, text: "hi", count: 2, enabled: false });
+    expect(() => parseOn(["bad"])).toThrow();
+    expect(() => parseParams({ param: ["bad"] })).toThrow();
+  });
+  test("creates event-only action automations without a remote cwd", () => {
+    const input = parseScheduleCreateInput({
+      prompt: "echo",
+      daemonTarget: selectDaemonTarget({ host: "ws://example.test" }, {}),
+      on: ["demo:ping"],
+      action: "demo.echo",
+      param: ["text=hi"],
+      timeout: "5m",
+    });
+    expect(input).toMatchObject({
+      cadence: { type: "none" },
+      runOnCreate: false,
+      target: { type: "action", action: "demo.echo", params: { text: "hi" }, timeoutMs: 300000 },
+    });
+    expect(() => parseScheduleCreateInput({ ...baseOptions, action: "echo" })).toThrow();
+  });
+  test("replaces or clears event triggers and removes clock triggers", () => {
+    expect(parseScheduleUpdateInput({ id: "one", clearOn: true, clock: false })).toEqual({
+      id: "one",
+      triggers: [],
+      cadence: { type: "none" },
+    });
+    expect(() =>
+      parseScheduleUpdateInput({ id: "one", clearOn: true, on: ["demo:ping"] }),
+    ).toThrow();
+  });
+  test("rejects new parameters against old daemons", () => {
+    const client = { getLastServerInfoMessage: () => ({ features: {} }) };
+    expect(() => requireAutomationsSupport(client)).toThrow();
+    expect(() => requireSourcesSupport(client)).toThrow("Update the host");
   });
 });

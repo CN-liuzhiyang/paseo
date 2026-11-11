@@ -328,6 +328,18 @@ reinstall dependencies before typechecking.
 
 See [requirements](reference#requirements) for range and prerelease semantics.
 
+## Adopt optional automation APIs
+
+Check `typeof server.registerAction`, `registerTriggerSource` and `emit` once
+in the server entry before registering automations. Older hosts leave them undefined.
+Declare Zod action parameters and a bounded operation allowlist, handle AbortSignal,
+and retain stable external event IDs and a replay cursor. See
+[actions and events](/docs/plugins/reference#automation-actions-and-events) and
+`plugin-examples/automation-demo` for the complete contract.
+
+Back up schedule state before downgrading the daemon: older hosts skip action and
+no-clock files and may strip event triggers when rewriting compatible records.
+
 ## 8. Verify the migration
 
 Run:

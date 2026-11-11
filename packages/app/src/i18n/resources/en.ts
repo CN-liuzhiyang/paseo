@@ -1,4 +1,8 @@
 export const en = {
+  automation: {
+    title: "Automation",
+    readOnly: "This automation is read-only here. Use the CLI to edit it.",
+  },
   paneFind: {
     connectionFailure: "Could not search this chat. Check the host connection and retry.",
     historyChangedFailure: "The chat changed while searching. Search again.",

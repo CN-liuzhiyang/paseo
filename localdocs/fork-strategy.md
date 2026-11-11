@@ -287,3 +287,4 @@ At that point pick one, explicitly: shrink the delta back down, or accept a hard
 fork and cherry-pick only upstream's security and bug fixes.
 
 The delta budget in `check-delta.mjs` is the early warning, not the trigger.
+The approved automation stages 1a/1b raise it to 210 files / 16000 changed lines.

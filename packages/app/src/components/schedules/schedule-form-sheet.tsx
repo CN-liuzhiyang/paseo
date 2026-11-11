@@ -1,4 +1,6 @@
 import equal from "fast-deep-equal";
+import { useTranslation } from "react-i18next";
+import { isReadOnlyAutomation, formatScheduleTriggers } from "@/utils/schedule-format";
 import {
   useCallback,
   useEffect,
@@ -205,6 +207,7 @@ function updateSelectionPreferences(input: {
 }
 
 export function ScheduleFormSheet(props: ScheduleFormSheetProps): ReactElement | null {
+  const { t } = useTranslation();
   const [renderedProps, setRenderedProps] = useState<ScheduleFormSheetProps | null>(() =>
     props.visible ? props : null,
   );
@@ -242,8 +245,38 @@ export function ScheduleFormSheet(props: ScheduleFormSheetProps): ReactElement |
     }
   }, []);
 
+  const readOnlyHeader = useMemo(
+    () => ({ title: renderedProps?.schedule?.name ?? t("automation.title") }),
+    [renderedProps?.schedule?.name, t],
+  );
+
   if (!renderedProps) {
     return null;
+  }
+
+  const readOnlySchedule = renderedProps.schedule;
+  if (readOnlySchedule && isReadOnlyAutomation(readOnlySchedule)) {
+    return (
+      <AdaptiveModalSheet
+        header={readOnlyHeader}
+        visible={sheetVisible}
+        onClose={requestClose}
+        onDismiss={handleDismiss}
+      >
+        <View style={styles.automationDetails}>
+          <Text style={styles.automationText}>{t("automation.readOnly")}</Text>
+          <Text style={styles.automationText}>{formatScheduleTriggers(readOnlySchedule)}</Text>
+          {readOnlySchedule.target.type === "action" ? (
+            <Text style={styles.automationText}>
+              {readOnlySchedule.target.action}
+              {"\n"}
+              {JSON.stringify(readOnlySchedule.target.params)}
+            </Text>
+          ) : null}
+          <Text style={styles.automationText}>{readOnlySchedule.prompt}</Text>
+        </View>
+      </AdaptiveModalSheet>
+    );
   }
 
   return (
@@ -1224,6 +1257,13 @@ const styles = StyleSheet.create((theme) => {
   const geometry = createControlGeometry(theme);
 
   return {
+    automationDetails: {
+      padding: theme.spacing[6],
+      gap: theme.spacing[3],
+    },
+    automationText: {
+      color: theme.colors.foreground,
+    },
     multilineInput: {
       minHeight: 96,
     },

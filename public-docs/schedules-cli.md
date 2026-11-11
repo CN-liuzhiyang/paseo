@@ -8,9 +8,58 @@ category: Schedules
 
 # Schedules from the CLI
 
-`paseo schedule` creates and manages new-agent [schedules](/docs/schedules) from your terminal, useful for headless boxes and scripts. Every run starts a fresh agent.
+`paseo schedule` creates and manages [schedules](/docs/schedules) from your terminal, useful for headless boxes and scripts. Agent schedules start a fresh agent on each run; plugin automations can run registered actions instead.
 
 Run workspaces are archived when each run ends by default. The CLI has no **Archive on finish** flag; [change the option in the app](/docs/schedules#keep-run-workspaces) to keep subsequent run workspaces active.
+
+## Project sources
+
+Define an `automations` object in project `paseo.json`. Keys match `[a-z][a-z0-9-]*`; definitions contain `prompt`, `target`, and `triggers` (every/cron/event, at most one clock). Targets allow `action` or `new-agent`; repository new-agent config allows only `title`, with provider/model set locally. Repository delivery contains only `channel`; local delivery must use that channel. Git projects read the default branch's committed file from local refs. Startup, ten-minute intervals and manual scans discover changes.
+
+Run `paseo automation source ls|scan`, review `source show <id>`, set local overrides with `source set <id> --deliver chat:me --param key=value`, then approve with `source enable <id> --fingerprint <sha256>`. Enable requires a direct human connection and `daemon.manage`; relay and plugin sessions cannot approve. Set also requires a direct human connection and `daemon.manage`; it preserves paused state. Other operations require `automation.manage`.
+
+Changed definitions pause until reapproved; show displays current/approved definitions and overrides. Action parameters merge shallowly. Use `source disable <id>` to pause and `source forget <id>` to delete the local source and generated schedule. Removed definitions become orphaned and retain history. Ordinary update/resume/delete cannot change source schedules. Missing action/event plugins appear in ERROR and prevent approval. The host must advertise `features.automationSources`.
+
+## Plugin automations
+
+`paseo automation` aliases the same command tree as `paseo schedule`. A host must
+advertise `features.automations` for these new flags; an older host is rejected.
+The app displays these definitions read-only. Existing agent schedules keep their editor.
+
+```bash
+paseo automation actions --json
+paseo automation triggers --json
+paseo automation create "Echo an event" --on demo:ping,sender=alice \
+  --action demo.echo --param text=hi --timeout 5m --deliver demo-results:example
+paseo automation update <id> --on demo:ping --param text=updated
+paseo automation update <id> --clear-on --no-clock
+paseo automation run-once <id> --event-json '{"id":"test","event":"ping","data":{"text":"hello"}}'
+paseo automation logs <id>
+```
+
+Repeat `--on source:event[,k=v...]` for several event triggers; `--every` or
+`--cron` adds one clock trigger. Without a clock, `--on` creates `cadence:none`.
+Update replaces the entire event list; `--clear-on` clears it, `--no-clock` removes
+the clock. Manual execution still works with no triggers.
+
+`--action` conflicts with agent target options (provider, mode, thinking, workspace,
+cwd). Repeat `--param k=v`, or use `--params-json` for nested objects; param flags
+override keys from the JSON object. Unquoted numbers and booleans keep their types.
+Parameter flags replace the entire parameter object. Changing only `--action` or
+`--timeout` preserves the other action fields. `--timeout` is limited to 60 minutes.
+Actions, triggers and parameter schemas are discoverable through the commands above.
+Lists and inspection show triggers and actions; logs identify the trigger and how
+many pending events were coalesced. Manual event tests bypass deduplication.
+
+Event runs preserve the clock cursor. Run limits and expiry apply to event runs; manual runs keep the upstream behavior
+and do not complete the schedule or advance its clock. A rate-limit pause appears in inspection's PauseReason; use `resume`
+after addressing the cause. See [the event contract](/docs/plugins/reference#automation-actions-and-events)
+for replay, coalescing, causal loop prevention and ingress limits.
+
+Older clients hide action targets and records without a clock; they receive legacy
+projections of the remaining records. Back up state before downgrading the daemon:
+an older daemon skips action/no-clock files, but can erase event triggers when it
+rewrites otherwise compatible records.
 
 ## Create
 

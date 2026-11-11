@@ -6,9 +6,52 @@ nav: CLI
 
 # 在 CLI 中使用定时任务 {#schedules-from-the-cli}
 
-`paseo schedule` 在终端中创建和管理新建 Agent 的[定时任务](/docs/schedules)，适用于无界面的机器和脚本。每次运行都会启动一个新的 Agent。
+`paseo schedule` 在终端中创建和管理[定时任务](/docs/schedules)，适用于无界面的机器和脚本。Agent 定时任务每次运行都会启动新的 Agent；插件自动化也可以执行已注册的动作。
 
 默认情况下，每次运行结束时都会归档其工作区。CLI 没有 **Archive on finish** 参数；要让之后的运行工作区保持活跃，请[在应用中修改该选项](/docs/schedules#keep-run-workspaces)。
+
+## 项目来源 {#project-sources}
+
+在项目 `paseo.json` 的 `automations` 对象中定义自动化。键匹配 `[a-z][a-z0-9-]*`；定义包含 `prompt`、`target`、`triggers`（every/cron/event，最多一个时钟）。目标只允许 action 或 new-agent；仓库 new-agent config 只能填 title，provider/model 在本机设置。仓库 delivery 只能填 channel，本机投递必须用同一 channel。Git 项目读取默认分支已提交文件的本地引用；启动、每十分钟或手动扫描时读取。
+
+用 `paseo automation source ls|scan` 发现来源，`source show <id>` 查看定义，再用 `source set <id> --deliver chat:me --param key=value` 设置本机覆盖。用 `source enable <id> --fingerprint <sha256>` 批准：需要直连人类会话及 `daemon.manage`，中继和插件不能批准。set 同样需要直连人类会话及 `daemon.manage`，保持暂停状态，其它操作需要 `automation.manage`。
+
+定义变化后暂停，重新批准才恢复；show 展示当前/批准定义和覆盖。动作参数浅合并。`source disable <id>` 暂停；`source forget <id>` 删除本机来源和生成的计划。定义消失时记为 orphaned，保留历史。普通 update/resume/delete 不能修改来源计划。缺少动作或事件插件时 ERROR 列显示缺少插件，不能批准。宿主必须支持 `features.automationSources`。
+
+## 插件自动化 {#plugin-automations}
+
+`paseo automation` 是 `paseo schedule` 同一命令树的别名。新参数要求宿主声明
+features.automations，旧宿主会被明确拒绝。App 对这些定义只读显示；原有代理计划仍可编辑。
+
+```bash
+paseo automation actions --json
+paseo automation triggers --json
+paseo automation create "回显事件" --on demo:ping,sender=alice \
+  --action demo.echo --param text=hi --timeout 5m --deliver demo-results:example
+paseo automation update <id> --on demo:ping --param text=updated
+paseo automation update <id> --clear-on --no-clock
+paseo automation run-once <id> --event-json '{"id":"test","event":"ping","data":{"text":"hello"}}'
+paseo automation logs <id>
+```
+
+可重复使用 --on source:event[,k=v...]；--every 或 --cron 额外添加一个时钟触发。
+只有 --on 时创建 cadence:none。update 整体替换事件列表，--clear-on 清空列表，
+--no-clock 移除时钟；没有任何触发时仍可手动运行。
+
+--action 与 provider、mode、thinking、workspace、cwd 等代理目标参数互斥。
+重复 --param k=v 或用 --params-json 传嵌套对象；param 覆盖 JSON 对象中的同名键。
+未加引号的数字和布尔值保留类型。参数选项会整体替换参数对象；只改 --action 或 --timeout
+会保留其他动作字段。--timeout 最多 60 分钟。
+actions/triggers 可发现已注册动作、参数模式和事件源。列表和详情显示触发与动作，
+日志显示触发来源和合并数。手动事件测试不参与去重。
+
+事件运行不推进时钟，并遵守运行次数和到期限制；手动运行沿用上游行为，
+不会使计划完成或推进时钟。
+限流暂停可在 PauseReason 看到；处理原因后用 resume 恢复。
+重放、合并、防环和入口限流见[事件契约](/docs/plugins/reference#automation-actions-and-events)。
+
+旧客户端会隐藏动作目标和无时钟记录，其余记录收到兼容投影。降级 daemon 前备份状态：
+旧 daemon 会跳过动作/无时钟文件，但重写其他兼容记录时可能丢掉事件触发字段。
 
 ## 创建 {#create}
 

@@ -10,7 +10,24 @@ import {
   partsToEveryMs,
   resolveScheduleTitle,
   validateCron,
+  formatScheduleTriggers,
+  isReadOnlyAutomation,
 } from "./schedule-format";
+
+it("displays event and future trigger types and marks action automations read-only", () => {
+  const record = {
+    ...createSchedule({}),
+    cadence: { type: "none" as const },
+    target: { type: "action" as const, action: "demo.echo", params: {} },
+    triggers: [
+      { type: "event", source: "demo", event: "ping" },
+      { type: "future", value: 42 },
+    ],
+  };
+  expect(formatScheduleTriggers(record)).toBe("demo:ping · future");
+  expect(isReadOnlyAutomation(record)).toBe(true);
+  expect(formatCadence(record.cadence)).toBe("—");
+});
 
 function createSchedule(input: {
   name?: string | null;

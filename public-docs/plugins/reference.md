@@ -2250,6 +2250,70 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
+## Automation actions and events
+
+These fork extension points are optional on `PluginServerContext`. Check once in your
+server entry that `registerAction`, `registerTriggerSource` and `emit` are functions.
+They are undefined on older hosts. See `plugin-examples/automation-demo` in the fork checkout.
+
+Project-source actions run in the project main checkout. Repository `paseo.json` automations are discovered with `source scan`; `source enable --fingerprint` requires a direct human connection and `daemon.manage`. Plugins and relay clients cannot approve. Set local recipients, models and shallow parameter overrides with `source set` (direct human connection and `daemon.manage`; paused state is preserved). Changed definitions pause until reapproved, preserving history; removed definitions become orphaned until `source forget`. The low-level client exposes `scheduleSources(operation, {id?, fingerprint?, overrides?})` for list/scan/show/enable/disable/set/forget; gate on `features.automationSources`. See [project sources](/docs/schedules-cli#project-sources).
+
+`registerAction({ id, label?, description?, params, defaultTimeoutMs?, run })` registers
+a Zod parameter schema and a handler. IDs use `/^[a-z][a-z0-9._-]*$/`. When plugins
+share an action ID, the lowest plugin ID wins; shadowed plugins receive a log entry.
+The host publishes the schema's input JSON Schema for discovery. The plugin validates
+parameters at creation, update and execution, including transformations.
+
+`run(input, context)` receives `{ params, prompt, run, trigger, cwd }`. The original
+prompt is unchanged. `run` contains `automationId`, `automationName` and `runId`;
+use the stable run ID as your external idempotency key. `cwd` is the project main checkout for project sources, and null for locally created automations. `context` supplies `paseo` and an `AbortSignal`.
+Return `{ text, agentId? }`. Results are limited to 64KB and use the schedule's
+normal history and delivery path. Throwing, rejection, a crashed plugin or timeout
+fails that run, with no retry; the automation stays active. The default timeout is
+10 minutes, configurable per action or target up to 60 minutes. Timeout aborts the
+signal and discards late results. Cancellation is cooperative; stop external work
+when the signal aborts.
+
+Action parameters can come from any client with `automation.manage`. Validate them
+against an explicit allowlist of operations. For example, a `flow.run` action must
+only run flows listed in the plugin's settings. The core supplies no arbitrary-command action.
+
+`registerTriggerSource({ id, label?, events })` declares event IDs. Each event can
+include `label`, `description` and `fields: string[]` for discovery of matchable data.
+Registration after the entry returns is supported, like outbound channels.
+
+`await emit(sourceId, { event, id, occurredAt?, subject?, data?, causedBy? })` emits
+only a source this plugin registered and a declared event ID. Use a stable external
+ID, unique across the source, not just within one event type. If plugins register the
+same source ID, the smallest plugin ID owns it; other plugins cannot emit through it.
+`occurredAt` is an ISO timestamp, defaulting to receipt time; `data` is a JSON
+object limited to 16KB. The result is `{ status, started, deferred, skipped }`;
+status is `accepted`, `duplicate` or `stale`, and started contains automation IDs.
+Acceptance does not wait for actions or delivery to finish.
+
+Event triggers match top-level data with strict equality, with all fields required.
+Any matching trigger runs an active automation once. Events older than its creation
+or trigger age (default one hour) are skipped. Deduplication retains the last 1000
+IDs per source, up to seven days, across daemon restarts. The core does not replay
+offline events: the source plugin owns a replay cursor and can safely resend IDs.
+One pending event survives while an automation is busy; later events replace it and
+increment `run.trigger.coalesced`. This pending slot is in memory and is lost on restart.
+
+A plugin may emit at most 120 events per minute, including replayed events; replay
+plugins must back off and retry rejected events. An automation pauses with
+`pauseReason: "rate-limit"` after 20 event runs per hour; a person must resume it.
+When an event results from a run, set `causedBy` to its run ID (also the channel's
+`idempotencyKey`). That automation cannot trigger itself, and causal depth above
+three is discarded. If the referenced run no longer exists, causal loop protection
+cannot resolve it; the 20/hour limit remains the safeguard. Resuming a rate-limit
+pause starts its event quota from zero. Event data is untrusted; agent prompts label and quote it as
+data, and actions receive it unchanged. Avoid unrestricted agent permission modes
+for automations driven by external events.
+
+`RunTrigger` is `clock`, `manual` or `event`. Event triggers include source,
+event, eventId, optional subject/data/coalesced, and depth. A manual test can carry
+an `event` object while remaining manual and bypassing event deduplication.
+
 ## Outbound channels
 
 A schedule can name a delivery target, `{ channel, to }`. When one of its runs finishes, Paseo hands the result to the plugin that registered that channel. Register one with `server.registerChannel()` from `@getpaseo/plugin/server`. It is undefined on hosts that predate it.

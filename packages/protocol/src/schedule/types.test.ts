@@ -1,6 +1,29 @@
 import { describe, expect, test } from "vitest";
 
-import { ScheduleCadenceSchema, ScheduleTargetSchema } from "./types.js";
+import {
+  ScheduleCadenceSchema,
+  ScheduleTargetSchema,
+  AutomationTriggerSchema,
+  StoredScheduleSchema,
+} from "./types.js";
+
+test("accepts action targets, no clock and unknown future trigger types", () => {
+  expect(ScheduleCadenceSchema.parse({ type: "none" })).toEqual({ type: "none" });
+  expect(
+    ScheduleTargetSchema.parse({
+      type: "action",
+      action: "demo.echo",
+      params: { text: "hi" },
+      timeoutMs: 500,
+    }),
+  ).toMatchObject({ type: "action", timeoutMs: 500 });
+  expect(AutomationTriggerSchema.parse({ type: "future", key: "value" })).toEqual({
+    type: "future",
+    key: "value",
+  });
+  expect(StoredScheduleSchema.shape.triggers.isOptional()).toBe(true);
+  expect(StoredScheduleSchema.shape.source.isOptional()).toBe(true);
+});
 
 describe("ScheduleCadenceSchema", () => {
   test("accepts existing UTC cron cadence without a time zone", () => {

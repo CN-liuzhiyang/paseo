@@ -1,3 +1,5 @@
+import type { SourceCaller } from "../../schedule/automation-sources.js";
+import { projectAutomation, projectAutomationRuns } from "../../schedule/automation-projection.js";
 import type pino from "pino";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
 import type { ScheduleService } from "../../schedule/service.js";
@@ -7,29 +9,68 @@ export interface ScheduleSessionHost {
 }
 
 export interface ScheduleSessionOptions {
+  supportsAutomations?: () => boolean;
   host: ScheduleSessionHost;
   scheduleService: ScheduleService;
   logger: pino.Logger;
 }
 
 export class ScheduleSession {
+  private readonly supportsAutomations: () => boolean;
   private readonly host: ScheduleSessionHost;
   private readonly scheduleService: ScheduleService;
   private readonly logger: pino.Logger;
 
   constructor(options: ScheduleSessionOptions) {
     this.host = options.host;
+    this.supportsAutomations = options.supportsAutomations ?? (() => false);
     this.scheduleService = options.scheduleService;
     this.logger = options.logger;
   }
 
+  async handleSourceRequest(request: SessionInboundMessage, caller: SourceCaller): Promise<void> {
+    type SourceRequest = Extract<
+      SessionInboundMessage,
+      { type: `schedule.sources.${string}.request` }
+    >;
+    type SourceResponse = Extract<
+      SessionOutboundMessage,
+      { type: `schedule.sources.${string}.response` }
+    >;
+    // Session dispatch has already selected the schema-validated source namespace.
+    const input = request as SourceRequest;
+    const type = input.type.replace(/\.request$/, ".response") as SourceResponse["type"];
+    try {
+      if (!this.scheduleService.sources) throw new Error("Automation sources unavailable");
+      const sources = await this.scheduleService.sources.request(
+        input.type.split(".")[2],
+        input,
+        caller,
+      );
+      this.host.emit({ type, payload: { requestId: input.requestId, sources, error: null } });
+    } catch (error) {
+      this.host.emit({
+        type,
+        payload: { requestId: input.requestId, sources: [], error: String(error) },
+      });
+    }
+  }
+
+  private project(schedule: Awaited<ReturnType<ScheduleService["inspect"]>>) {
+    return projectAutomation(schedule, this.supportsAutomations());
+  }
+
   private toScheduleSummary(
     schedule: Awaited<ReturnType<ScheduleService["inspect"]>>,
-  ): Extract<
-    SessionOutboundMessage,
-    { type: "schedule/list/response" }
-  >["payload"]["schedules"][number] {
-    const { runs: _runs, ...summary } = schedule;
+  ):
+    | Extract<
+        SessionOutboundMessage,
+        { type: "schedule/list/response" }
+      >["payload"]["schedules"][number]
+    | null {
+    const projected = this.project(schedule);
+    if (!projected) return null;
+    const { runs: _runs, ...summary } = projected;
     return summary;
   }
 
@@ -47,7 +88,9 @@ export class ScheduleSession {
           | "schedule/delete"
           | "schedule/run-once"
           | "schedule/update"
-          | "schedule/channels";
+          | "schedule/channels"
+          | "schedule/actions"
+          | "schedule/triggers";
       }
     >,
     error: unknown,
@@ -82,6 +125,7 @@ export class ScheduleSession {
         expiresAt: request.expiresAt,
         runOnCreate: request.runOnCreate,
         delivery: request.delivery,
+        triggers: request.triggers,
       });
       this.host.emit({
         type: "schedule/create/response",
@@ -105,7 +149,10 @@ export class ScheduleSession {
         type: "schedule/list/response",
         payload: {
           requestId: request.requestId,
-          schedules: schedules.map((schedule) => this.toScheduleSummary(schedule)),
+          schedules: schedules.flatMap((schedule) => {
+            const summary = this.toScheduleSummary(schedule);
+            return summary ? [summary] : [];
+          }),
           error: null,
         },
       });
@@ -123,7 +170,7 @@ export class ScheduleSession {
         type: "schedule/inspect/response",
         payload: {
           requestId: request.requestId,
-          schedule,
+          schedule: this.project(schedule),
           error: null,
         },
       });
@@ -146,6 +193,32 @@ export class ScheduleSession {
     }
   }
 
+  async handleScheduleActionsRequest(
+    request: Extract<SessionInboundMessage, { type: "schedule/actions" }>,
+  ): Promise<void> {
+    this.host.emit({
+      type: "schedule/actions/response",
+      payload: {
+        requestId: request.requestId,
+        actions: this.scheduleService.listActions(),
+        error: null,
+      },
+    });
+  }
+
+  async handleScheduleTriggersRequest(
+    request: Extract<SessionInboundMessage, { type: "schedule/triggers" }>,
+  ): Promise<void> {
+    this.host.emit({
+      type: "schedule/triggers/response",
+      payload: {
+        requestId: request.requestId,
+        triggers: this.scheduleService.listTriggerSources(),
+        error: null,
+      },
+    });
+  }
+
   async handleScheduleLogsRequest(
     request: Extract<SessionInboundMessage, { type: "schedule/logs" }>,
   ): Promise<void> {
@@ -155,7 +228,7 @@ export class ScheduleSession {
         type: "schedule/logs/response",
         payload: {
           requestId: request.requestId,
-          runs,
+          runs: projectAutomationRuns(runs, this.supportsAutomations()),
           error: null,
         },
       });
@@ -222,12 +295,12 @@ export class ScheduleSession {
     request: Extract<SessionInboundMessage, { type: "schedule/run-once" }>,
   ): Promise<void> {
     try {
-      const schedule = await this.scheduleService.runOnce(request.scheduleId);
+      const schedule = await this.scheduleService.runOnce(request.scheduleId, request.event);
       this.host.emit({
         type: "schedule/run-once/response",
         payload: {
           requestId: request.requestId,
-          schedule,
+          schedule: this.project(schedule),
           error: null,
         },
       });
@@ -242,6 +315,8 @@ export class ScheduleSession {
     try {
       const schedule = await this.scheduleService.update({
         id: request.scheduleId,
+        triggers: request.triggers,
+        actionConfig: request.actionConfig,
         ...(request.name !== undefined ? { name: request.name } : {}),
         ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
         ...(request.cadence !== undefined ? { cadence: request.cadence } : {}),
@@ -254,7 +329,7 @@ export class ScheduleSession {
         type: "schedule/update/response",
         payload: {
           requestId: request.requestId,
-          schedule,
+          schedule: this.project(schedule),
           error: null,
         },
       });

@@ -31,6 +31,15 @@ import {
 } from "@getpaseo/plugin/server/provider";
 import type { PluginLogEntry } from "@getpaseo/protocol/messages";
 import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
+import type { ActionInput } from "@getpaseo/plugin/server";
+import type {
+  ScheduleAction,
+  ScheduleTriggerSource,
+  TriggerEvent,
+  TriggerSourceRegistration,
+  EmitResult,
+} from "@getpaseo/protocol/schedule/types";
+import type { PluginActionMetadata } from "./plugin-process-protocol.js";
 import { compileDirectoryPlugin } from "./compiler.js";
 import type { PluginRequirements } from "@getpaseo/protocol/messages";
 import type {
@@ -92,6 +101,8 @@ interface LoadedPlugin {
   hooks: string[];
   providers: readonly PluginProviderMetadata[];
   channels: readonly PluginChannelMetadata[];
+  actions: readonly PluginActionMetadata[];
+  triggerSources: readonly TriggerSourceRegistration[];
   usageSources: readonly PluginUsageSourceMetadata[];
   child: PluginChild | null;
   outputCapture: PluginOutputCapture | null;
@@ -351,6 +362,8 @@ export class PluginRuntime {
     }
     this.plugins.set(pluginId, loaded);
     this.reportChannelConflicts(loaded);
+    this.reportActionConflicts();
+    this.reportTriggerSourceConflicts();
     this.notifySessionOpenChange(loaded);
     this.appendLog(pluginId, "stdout", "[paseo] Plugin ready");
   }
@@ -371,6 +384,7 @@ export class PluginRuntime {
       clientBundle: bundles.clientBundle ?? "",
     });
     this.plugins.set(input.id, loaded);
+    this.reportTriggerSourceConflicts();
     this.notifySessionOpenChange(loaded);
     this.appendLog(input.id, "stdout", "[paseo] Plugin ready");
   }
@@ -524,6 +538,131 @@ export class PluginRuntime {
         timeoutMessage: `Channel "${channelId}" (plugin ${owner.id}) did not finish delivering within ${CHANNEL_DELIVERY_TIMEOUT_MS / 1000}s`,
       },
     );
+  }
+
+  private triggerHandler:
+    | ((pluginId: string, sourceId: string, event: TriggerEvent) => Promise<EmitResult>)
+    | null = null;
+
+  bindTriggerHandler(handler: NonNullable<PluginRuntime["triggerHandler"]>): void {
+    this.triggerHandler = handler;
+  }
+
+  listActions(): ScheduleAction[] {
+    const result = new Map<string, ScheduleAction>();
+    for (const plugin of [...this.plugins.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const action of plugin.actions) {
+        if (!result.has(action.id)) result.set(action.id, { ...action, pluginId: plugin.id });
+      }
+    }
+    return [...result.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private reportActionConflicts(): void {
+    const owners = new Map<string, string>();
+    for (const plugin of [...this.plugins.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const action of plugin.actions) {
+        const winner = owners.get(action.id);
+        if (winner)
+          this.appendLog(
+            plugin.id,
+            "stderr",
+            `[paseo] Action "${action.id}" is also registered by plugin ${winner}; runs go to ${winner}`,
+          );
+        else owners.set(action.id, plugin.id);
+      }
+    }
+  }
+
+  listTriggerSources(): ScheduleTriggerSource[] {
+    const result = new Map<string, ScheduleTriggerSource>();
+    for (const plugin of [...this.plugins.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const source of plugin.triggerSources) {
+        if (!result.has(source.id)) result.set(source.id, { ...source, pluginId: plugin.id });
+      }
+    }
+    return [...result.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private reportTriggerSourceConflicts(): void {
+    const owners = new Map(this.listTriggerSources().map((source) => [source.id, source.pluginId]));
+    for (const plugin of this.plugins.values()) {
+      for (const source of plugin.triggerSources) {
+        if (owners.get(source.id) !== plugin.id)
+          this.appendLog(
+            plugin.id,
+            "stderr",
+            `[paseo] Event source "${source.id}" is owned by plugin ${owners.get(source.id)}; emit is disabled`,
+          );
+      }
+    }
+  }
+
+  private actionOwner(id: string): LoadedPlugin {
+    const owner = [...this.plugins.values()]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .find((plugin) => plugin.actions.some((action) => action.id === id));
+    if (!owner) throw new Error(`No running plugin provides action "${id}"`);
+    return owner;
+  }
+
+  async validateAction(actionId: string, params: Record<string, unknown>): Promise<void> {
+    await this.request(this.actionOwner(actionId), {
+      type: "action.validate",
+      requestId: randomUUID(),
+      actionId,
+      params,
+    });
+  }
+
+  runAction(actionId: string, input: ActionInput, timeoutMs: number): Promise<unknown> {
+    return this.request(
+      this.actionOwner(actionId),
+      { type: "action.run", requestId: randomUUID(), actionId, input },
+      undefined,
+      {
+        timeoutMs,
+        timeoutMessage: `Action "${actionId}" timed out after ${timeoutMs / 1000}s`,
+      },
+    );
+  }
+
+  private answerTriggerCall(
+    pluginId: string,
+    child: PluginChild,
+    message: Extract<PluginProcessMessage, { type: "trigger.emit.request" }>,
+  ): void {
+    const emit = async () => {
+      const source = this.plugins
+        .get(pluginId)
+        ?.triggerSources.find((entry) => entry.id === message.sourceId);
+      if (!source || !source.events.some((event) => event.id === message.event.event))
+        throw new Error(`Unregistered event: ${message.sourceId}:${message.event.event}`);
+      const owner = this.listTriggerSources().find((entry) => entry.id === message.sourceId);
+      if (owner?.pluginId !== pluginId) {
+        const reason = `Event source "${message.sourceId}" is owned by plugin ${owner?.pluginId}`;
+        this.appendLog(pluginId, "stderr", `[paseo] ${reason}; emit rejected`);
+        throw new Error(reason);
+      }
+      if (!this.triggerHandler) throw new Error("Automation event router is unavailable");
+      return this.triggerHandler(pluginId, message.sourceId, message.event);
+    };
+    void emit()
+      .then(
+        (output) => send(child, { type: "channel.response", requestId: message.requestId, output }),
+        (error) =>
+          send(child, {
+            type: "channel.response",
+            requestId: message.requestId,
+            error: describeError(error),
+          }),
+      )
+      .catch((error) =>
+        this.logger.warn(
+          { err: error, pluginId, requestId: message.requestId },
+          "Failed to send event emission response",
+        ),
+      );
   }
 
   /**
@@ -846,6 +985,8 @@ export class PluginRuntime {
       const cancel = () => {
         clearTimeout(timeout);
         loaded.pending.delete(requestId);
+        if (message.type === "action.run")
+          void send(child, { type: "action.cancel", requestId }).catch(() => {});
         if (message.type === "tool.call")
           void send(child, { type: "tool.cancel", requestId }).catch(() => {});
         signal?.removeEventListener("abort", cancel);
@@ -854,6 +995,8 @@ export class PluginRuntime {
       const timeout = setTimeout(
         () => {
           loaded.pending.delete(requestId);
+          if (message.type === "action.run")
+            void send(child, { type: "action.cancel", requestId }).catch(() => {});
           signal?.removeEventListener("abort", cancel);
           if (message.type === "tool.call")
             void send(child, { type: "tool.cancel", requestId }).catch(() => {});
@@ -922,6 +1065,8 @@ export class PluginRuntime {
         hooks: [],
         providers: [],
         channels: [],
+        actions: [],
+        triggerSources: [],
         usageSources: [],
         child: null,
         outputCapture: null,
@@ -972,6 +1117,8 @@ export class PluginRuntime {
     let ready: Extract<PluginProcessMessage, { type: "ready" }>;
     // A registration that follows ready can arrive before `loaded` exists; keep the latest.
     let channelsBeforeLoaded: PluginChannelMetadata[] | null = null;
+    let actionsBeforeLoaded: PluginActionMetadata[] | null = null;
+    let triggersBeforeLoaded: TriggerSourceRegistration[] | null = null;
     try {
       ready = await new Promise<Extract<PluginProcessMessage, { type: "ready" }>>(
         (resolve, reject) => {
@@ -1020,10 +1167,16 @@ export class PluginRuntime {
               message.type === "channel.list.request"
             ) {
               this.answerChannelCall({ pluginId, child, message });
+            } else if (message.type === "trigger.emit.request") {
+              this.answerTriggerCall(pluginId, child, message);
             } else if (loaded) {
               this.handleChildMessage(loaded, message);
             } else if (message.type === "channels.changed") {
               channelsBeforeLoaded = message.channels;
+            } else if (message.type === "actions.changed") {
+              actionsBeforeLoaded = message.actions;
+            } else if (message.type === "triggers.changed") {
+              triggersBeforeLoaded = message.triggerSources;
             }
           });
           child.on("close", () => {
@@ -1062,6 +1215,8 @@ export class PluginRuntime {
       hooks: ready.hooks ?? [],
       providers: ready.providers ?? [],
       channels: channelsBeforeLoaded ?? ready.channels ?? [],
+      actions: actionsBeforeLoaded ?? ready.actions ?? [],
+      triggerSources: triggersBeforeLoaded ?? ready.triggerSources ?? [],
       usageSources: ready.usageSources ?? [],
       child,
       outputCapture,
@@ -1139,6 +1294,16 @@ export class PluginRuntime {
   }
 
   private handleChildMessage(loaded: LoadedPlugin, message: PluginProcessMessage): void {
+    if (message.type === "actions.changed") {
+      loaded.actions = message.actions;
+      this.reportActionConflicts();
+      return;
+    }
+    if (message.type === "triggers.changed") {
+      loaded.triggerSources = message.triggerSources;
+      this.reportTriggerSourceConflicts();
+      return;
+    }
     if (message.type === "hooks.changed") {
       const hadSessionOpen = loaded.hooks.includes("agent.open.before");
       loaded.hooks = message.hooks;

@@ -1,6 +1,18 @@
 import type { PaseoApi } from "@getpaseo/client";
 import type { ZodType, input as ZodInput, output as ZodOutput } from "zod";
-import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
+import type {
+  ScheduleChannel,
+  RunTrigger,
+  TriggerSourceRegistration,
+  TriggerEvent,
+  EmitResult,
+} from "@getpaseo/protocol/schedule/types";
+export type {
+  TriggerSourceRegistration,
+  TriggerEvent,
+  EmitResult,
+  RunTrigger,
+} from "@getpaseo/protocol/schedule/types";
 import type { PluginRpcContract } from "../rpc.js";
 import type { PluginCleanup } from "../contracts.js";
 import type { ProviderRegistration } from "./provider.js";
@@ -9,6 +21,32 @@ import type { PluginLifecycleRegistration } from "./lifecycle.js";
 
 export interface PluginHandlerContext {
   paseo: PaseoApi;
+}
+
+export interface ActionInput<P = Record<string, unknown>> {
+  params: P;
+  prompt: string;
+  run: { automationId: string; automationName: string | null; runId: string };
+  trigger: RunTrigger;
+  cwd: string | null;
+}
+export interface ActionContext extends PluginHandlerContext {
+  signal: AbortSignal;
+}
+export interface ActionResult {
+  text: string;
+  agentId?: string | null;
+}
+export interface ActionRegistration<P extends ZodType = ZodType> {
+  id: string;
+  label?: string;
+  description?: string;
+  params: P;
+  defaultTimeoutMs?: number;
+  run(
+    input: ActionInput<ZodOutput<P>>,
+    context: ActionContext,
+  ): Promise<ActionResult> | ActionResult;
 }
 
 export type PluginSettingsState<Schema extends ZodType> =
@@ -124,6 +162,9 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
   deliver?(channelId: string, message: ChannelMessage): Promise<void>;
   /** The channels `deliver` can reach, as `paseo schedule channels` lists them. Undefined like `deliver`. */
   listChannels?(): Promise<ScheduleChannel[]>;
+  registerAction?<P extends ZodType>(action: ActionRegistration<P>): void;
+  registerTriggerSource?(source: TriggerSourceRegistration): void;
+  emit?(sourceId: string, event: TriggerEvent): Promise<EmitResult>;
   registerUsageSource(source: UsageSourceRegistration): void;
 }
 

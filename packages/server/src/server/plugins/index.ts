@@ -58,6 +58,11 @@ interface PluginRuntimePort {
   connectProvider: PluginRuntime["connectProvider"];
   deliverToChannel?: PluginRuntime["deliverToChannel"];
   listChannels?: PluginRuntime["listChannels"];
+  listActions?: PluginRuntime["listActions"];
+  listTriggerSources?: PluginRuntime["listTriggerSources"];
+  validateAction?: PluginRuntime["validateAction"];
+  runAction?: PluginRuntime["runAction"];
+  bindTriggerHandler?: PluginRuntime["bindTriggerHandler"];
   getProviderCatalogCacheKey?: PluginRuntime["getProviderCatalogCacheKey"];
   getProviderStatus?: PluginRuntime["getProviderStatus"];
   validatePlugin?(path: string): Promise<void>;
@@ -533,6 +538,27 @@ export class PluginService {
 
   invokePluginRpc(pluginId: string, method: string, input: unknown): Promise<unknown> {
     return this.runtime.invoke(pluginId, method, input);
+  }
+
+  listActions(): ReturnType<PluginRuntime["listActions"]> {
+    return this.runtime.listActions?.() ?? [];
+  }
+  listTriggerSources(): ReturnType<PluginRuntime["listTriggerSources"]> {
+    return this.runtime.listTriggerSources?.() ?? [];
+  }
+  async validateAction(...args: Parameters<PluginRuntime["validateAction"]>): Promise<void> {
+    if (!this.runtime.validateAction)
+      throw new Error(`No running plugin provides action "${args[0]}"`);
+    return this.runtime.validateAction(...args);
+  }
+  runAction(
+    ...args: Parameters<PluginRuntime["runAction"]>
+  ): ReturnType<PluginRuntime["runAction"]> {
+    if (!this.runtime.runAction) throw new Error(`No running plugin provides action "${args[0]}"`);
+    return this.runtime.runAction(...args);
+  }
+  bindTriggerHandler(...args: Parameters<PluginRuntime["bindTriggerHandler"]>): void {
+    this.runtime.bindTriggerHandler?.(...args);
   }
 
   /** Resolves once the plugin that registered `channelId` accepted the delivery. */

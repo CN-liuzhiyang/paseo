@@ -86,6 +86,16 @@ plugin before compiling and starting from disk. A failed reload stays failed; Pa
 the old code. Use `enable`, `disable`, and `remove` to manage one plugin. Removing a directory source
 never deletes it. The global `pluginsEnabled` switch remains available.
 
+## Automation extension points
+
+Server plugins can register actions and event sources and emit only their own events.
+These optional APIs are capability-gated once in the plugin entry. The host routes
+events into the existing schedule service; delivery still uses outbound channels.
+Parameters are authoritative in the plugin process, not in the host's discovery schema.
+The complete author contract and replay/timeout limits live in the
+[public reference](../public-docs/plugins/reference.md#automation-actions-and-events).
+`plugin-examples/automation-demo` is the executable example.
+
 ## Client translations
 
 Plugin runtime translations follow the connected app, so never send a daemon locale through RPCs or add plugin resources to the app catalog. The installation owns the translation engine; native portal bridges must carry it alongside RPC and client-state contexts. Keep host label resolution at presentation time so language changes preserve the installation lifetime.

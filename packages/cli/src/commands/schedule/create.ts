@@ -3,6 +3,9 @@ import type { SingleResult } from "../../output/index.js";
 import { scheduleSchema } from "./schema.js";
 import {
   connectScheduleClient,
+  requireAutomationsSupport,
+  usesAutomationFlags,
+  type AutomationFlags,
   parseScheduleCreateInput,
   requireScheduleWorkspaceSupport,
   toScheduleCommandError,
@@ -11,7 +14,7 @@ import {
   type ScheduleRow,
 } from "./shared.js";
 
-export interface ScheduleCreateOptions extends ScheduleCommandOptions {
+export interface ScheduleCreateOptions extends ScheduleCommandOptions, AutomationFlags {
   every?: string;
   cron?: string;
   timezone?: string;
@@ -36,6 +39,7 @@ export async function runCreateCommand(
   const runNowSource = command.getOptionValueSource("runNow");
   const runNow = runNowSource === "cli" ? Boolean(options.runNow) : undefined;
   const input = parseScheduleCreateInput({
+    ...options,
     prompt,
     every: options.every,
     cron: options.cron,
@@ -55,6 +59,7 @@ export async function runCreateCommand(
   });
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {
+    if (usesAutomationFlags(options)) requireAutomationsSupport(client);
     if (options.workspace !== undefined) {
       requireScheduleWorkspaceSupport(client);
     }

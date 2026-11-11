@@ -7,6 +7,9 @@ import {
 } from "./schema.js";
 import {
   connectScheduleClient,
+  requireAutomationsSupport,
+  usesAutomationFlags,
+  type AutomationFlags,
   parseScheduleUpdateInput,
   requireNewAgentSchedule,
   requireScheduleWorkspaceSupport,
@@ -14,7 +17,9 @@ import {
   type ScheduleCommandOptions,
 } from "./shared.js";
 
-export interface ScheduleUpdateOptions extends ScheduleCommandOptions {
+export interface ScheduleUpdateOptions extends ScheduleCommandOptions, AutomationFlags {
+  clearOn?: boolean;
+  clock?: boolean;
   every?: string;
   cron?: string;
   timezone?: string;
@@ -37,6 +42,7 @@ export async function runUpdateCommand(
   _command: Command,
 ): Promise<ListResult<ScheduleInspectRow>> {
   const input = parseScheduleUpdateInput({
+    ...options,
     id,
     every: options.every,
     cron: options.cron,
@@ -57,10 +63,12 @@ export async function runUpdateCommand(
   });
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {
+    if (usesAutomationFlags(options) || options.clearOn || options.clock === false)
+      requireAutomationsSupport(client);
     if (options.workspace !== undefined) {
       requireScheduleWorkspaceSupport(client);
     }
-    await requireNewAgentSchedule(client, id);
+    if (input.newAgentConfig) await requireNewAgentSchedule(client, id);
     const payload = await client.scheduleUpdate(input);
     if (payload.error || !payload.schedule) {
       throw new Error(payload.error ?? `Failed to update schedule: ${id}`);

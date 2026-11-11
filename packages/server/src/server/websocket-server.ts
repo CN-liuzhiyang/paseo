@@ -1628,6 +1628,13 @@ export class VoiceAssistantWebSocketServer {
         }
         return total;
       },
+      sourceCaller: (source) => {
+        const socket = source as WebSocketLike | undefined;
+        return {
+          transport: socket ? this.socketIdentities.get(socket)?.transport : undefined,
+          plugin: socket ? this.pluginSocketIds.has(socket) : false,
+        };
+      },
       sourceId: options.sourceId,
       browserToolsBroker: this.browserToolsBroker,
       clientId: options.clientId,
@@ -2149,6 +2156,9 @@ export class VoiceAssistantWebSocketServer {
         commitFiles: true,
         // COMPAT(scheduleDelivery): fork-only until upstream lands its own shape.
         scheduleDelivery: true,
+        // COMPAT(automations): fork-only until upstream lands its own shape.
+        automations: true,
+        automationSources: true,
         // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.
         providerRemoval: true,
         hopliteProvider: this.providerSnapshotManager.supportsConfigRequiredProvider("hoplite"),

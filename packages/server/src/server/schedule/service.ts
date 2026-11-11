@@ -1,5 +1,7 @@
+import type { AutomationSources } from "./automation-sources.js";
 import { formatSystemNotificationPrompt } from "../agent/agent-messages/index.js";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "pino";
@@ -18,6 +20,15 @@ import { assertWorkspaceAutomationAllowed } from "../workspace-automation-gate.j
 import type { CreatePaseoWorktreeWorkflowResult } from "../worktree-session.js";
 import { ScheduleStore } from "./store.js";
 import { computeNextRunAt, validateScheduleCadence } from "./cron.js";
+import { promptForRun } from "./automation-actions.js";
+import { validateAutomationTriggers } from "./automation-triggers.js";
+import { ScheduleTargetSchema, TriggerEventSchema } from "@getpaseo/protocol/schedule/types";
+import type {
+  RunTrigger,
+  TriggerEvent,
+  ScheduleAction,
+  ScheduleTriggerSource,
+} from "@getpaseo/protocol/schedule/types";
 import type {
   CreateScheduleInput,
   ScheduleChannel,
@@ -63,7 +74,7 @@ export class ScheduleStateConflictError extends Error {
 }
 
 function advanceNextRunAtPast(
-  cadence: StoredSchedule["cadence"],
+  cadence: Exclude<StoredSchedule["cadence"], { type: "none" }>,
   nextRunAt: Date,
   now: Date,
 ): Date {
@@ -72,6 +83,15 @@ function advanceNextRunAtPast(
     next = computeNextRunAt(cadence, next);
   }
   return next;
+}
+
+function firstRunAt(
+  cadence: StoredSchedule["cadence"],
+  now: Date,
+  runOnCreate: boolean,
+): Date | null {
+  if (cadence.type === "none") return null;
+  return runOnCreate ? now : computeNextRunAt(cadence, now);
 }
 
 function trimOptionalName(value: string | null | undefined): string | null {
@@ -86,7 +106,7 @@ function buildScheduleFireBody(schedule: StoredSchedule, runId: string): string 
   const heading = schedule.name
     ? `Schedule "${schedule.name}" fired (id=${schedule.id}, run=${runId}).`
     : `Schedule fired (id=${schedule.id}, run=${runId}).`;
-  return `${heading}\n${schedule.prompt}`;
+  return `${heading}\n${promptForRun(schedule, runId)}`;
 }
 
 function normalizePrompt(prompt: string): string {
@@ -328,6 +348,10 @@ interface ScheduleWorkspaceCreateInput {
 }
 
 export interface ScheduleServiceOptions {
+  runAction?: (schedule: StoredSchedule, runId: string) => Promise<ScheduleExecutionResult>;
+  validateAction?: (id: string, params: Record<string, unknown>) => Promise<void>;
+  listActions?: () => ScheduleAction[];
+  listTriggerSources?: () => ScheduleTriggerSource[];
   paseoHome: string;
   logger: Logger;
   agentManager: ScheduleAgentManager;
@@ -351,6 +375,59 @@ export interface ScheduleServiceOptions {
 }
 
 export class ScheduleService {
+  sources?: AutomationSources;
+  async applySource(
+    id: string | undefined,
+    input: CreateScheduleInput,
+    source: NonNullable<StoredSchedule["source"]>,
+    preserveState = false,
+  ): Promise<StoredSchedule> {
+    validateAutomationTriggers(input.triggers ?? []);
+    validateScheduleCadence(input.cadence);
+    const fields = {
+      name: trimOptionalName(input.name),
+      prompt: normalizePrompt(input.prompt),
+      target: await this.resolveCreateTarget(input.target),
+    };
+    const record = { ...this.buildScheduleRecord(input, fields), source, pauseReason: undefined };
+    if (!id) {
+      id = (await this.list()).find(
+        (s) =>
+          s.source?.projectKey === source.projectKey &&
+          s.source.automationId === source.automationId,
+      )?.id;
+    }
+    if (!id) return this.store.create(record);
+    return requireSchedule(
+      await this.store.update(id, (current) => {
+        const next = {
+          ...current,
+          ...record,
+          runs: current.runs,
+          createdAt: current.createdAt,
+          lastRunAt: current.lastRunAt,
+          lastDelivery: current.lastDelivery,
+        };
+        if (preserveState)
+          Object.assign(next, {
+            status: current.status,
+            pausedAt: current.pausedAt,
+            pauseReason: current.pauseReason,
+            nextRunAt: current.nextRunAt,
+          });
+        else if (current.pauseReason === "rate-limit")
+          next.eventRateLimitRunOffset = current.runs.length;
+        return next;
+      }),
+      id,
+    );
+  }
+
+  private readonly automationOptions: Pick<
+    ScheduleServiceOptions,
+    "runAction" | "validateAction" | "listActions" | "listTriggerSources"
+  >;
+  private readonly runFinished = new Set<(id: string) => void>();
   private readonly store: ScheduleStore;
   private readonly logger: Logger;
   private readonly agentManager: ScheduleAgentManager;
@@ -379,6 +456,7 @@ export class ScheduleService {
   private tickTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: ScheduleServiceOptions) {
+    this.automationOptions = options;
     this.logger = options.logger.child({ module: "schedule-service" });
     this.store = new ScheduleStore(join(options.paseoHome, "schedules"), this.logger);
     this.agentManager = options.agentManager;
@@ -418,6 +496,7 @@ export class ScheduleService {
   }
 
   async create(input: CreateScheduleInput): Promise<StoredSchedule> {
+    validateAutomationTriggers(input.triggers ?? []);
     const prompt = normalizePrompt(input.prompt);
     validateScheduleCadence(input.cadence);
     return this.createScheduleRecord(input, {
@@ -440,8 +519,9 @@ export class ScheduleService {
   ): Omit<StoredSchedule, "id"> {
     const now = this.now();
     const runOnCreate = input.runOnCreate ?? input.cadence.type === "every";
-    const nextRunAt = runOnCreate ? now : computeNextRunAt(input.cadence, now);
+    const nextRunAt = firstRunAt(input.cadence, now, runOnCreate);
     return {
+      ...(input.triggers ? { triggers: input.triggers } : {}),
       ...(input.delivery ? { delivery: normalizeDelivery(input.delivery) } : {}),
       name: fields.name,
       prompt: fields.prompt,
@@ -450,7 +530,7 @@ export class ScheduleService {
       status: "active",
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
-      nextRunAt: nextRunAt.toISOString(),
+      nextRunAt: nextRunAt?.toISOString() ?? null,
       lastRunAt: null,
       pausedAt: null,
       expiresAt: input.expiresAt ?? null,
@@ -463,6 +543,7 @@ export class ScheduleService {
   // name and target (e.g. babysit-pr re-registering its heartbeat) refreshes the
   // existing non-completed schedule in place instead of minting a duplicate.
   async createOrReplace(input: CreateScheduleInput): Promise<StoredSchedule> {
+    validateAutomationTriggers(input.triggers ?? []);
     const name = trimOptionalName(input.name);
     const prompt = normalizePrompt(input.prompt);
     validateScheduleCadence(input.cadence);
@@ -480,16 +561,18 @@ export class ScheduleService {
         const now = this.now();
         const cadence = mergeScheduleCadenceTimezone(current.cadence, input.cadence);
         const runOnCreate = input.runOnCreate ?? cadence.type === "every";
-        const nextRunAt = runOnCreate ? now : computeNextRunAt(cadence, now);
+        const nextRunAt = firstRunAt(cadence, now, runOnCreate);
         return {
           ...withDelivery(current, input.delivery),
+          triggers: input.triggers,
+          pauseReason: undefined,
           name,
           prompt,
           cadence,
           target: inputTarget,
           status: "active",
           pausedAt: null,
-          nextRunAt: nextRunAt.toISOString(),
+          nextRunAt: nextRunAt?.toISOString() ?? null,
           expiresAt: input.expiresAt ?? null,
           maxRuns: normalizeMaxRuns(input.maxRuns),
           updatedAt: now.toISOString(),
@@ -511,23 +594,56 @@ export class ScheduleService {
     return this.listChannelsFromPlugins();
   }
 
+  listActions(): ScheduleAction[] {
+    return this.automationOptions.listActions?.() ?? [];
+  }
+  listTriggerSources(): ScheduleTriggerSource[] {
+    return this.automationOptions.listTriggerSources?.() ?? [];
+  }
+  isRunning(id: string): boolean {
+    return this.runningScheduleIds.has(id);
+  }
+  subscribeRunFinished(listener: (id: string) => void): () => void {
+    this.runFinished.add(listener);
+    return () => this.runFinished.delete(listener);
+  }
+
+  async runForTrigger(id: string, trigger: RunTrigger): Promise<void> {
+    if (this.isRunning(id))
+      throw new ScheduleStateConflictError(`Schedule ${id} is already running`);
+    this.runningScheduleIds.add(id);
+    try {
+      const schedule = await this.inspect(id);
+      if (schedule.status !== "active") return;
+      if (shouldCompleteSchedule(schedule, this.now())) {
+        await this.store.update(id, (current) => completeSchedule(current, this.now()));
+        return;
+      }
+      await this.runSchedule(schedule, this.now(), { manual: true, trigger });
+    } finally {
+      this.runningScheduleIds.delete(id);
+    }
+  }
+
   async logs(id: string): Promise<ScheduleRun[]> {
     const schedule = await this.inspect(id);
     return [...schedule.runs].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
   }
 
-  async pause(id: string): Promise<StoredSchedule> {
+  async pause(id: string, reason?: string, overwriteReason = false): Promise<StoredSchedule> {
     const paused = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
+        if (reason?.startsWith("source-")) return schedule;
         throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
       }
-      if (schedule.status === "paused") {
+      if (schedule.status === "paused" && !overwriteReason) {
         return schedule;
       }
       const now = this.now();
       return {
         ...schedule,
         status: "paused" as const,
+        pauseReason: reason,
         nextRunAt: null,
         pausedAt: now.toISOString(),
         updatedAt: now.toISOString(),
@@ -536,7 +652,9 @@ export class ScheduleService {
     return requireSchedule(paused, id);
   }
 
-  async resume(id: string): Promise<StoredSchedule> {
+  async resume(id: string, approvedSource = false): Promise<StoredSchedule> {
+    if (!approvedSource && (await this.inspect(id)).source)
+      throw new Error("Use source enable --fingerprint to resume a project automation");
     const resumed = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
         throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
@@ -548,8 +666,12 @@ export class ScheduleService {
       return {
         ...schedule,
         status: "active" as const,
+        pauseReason: undefined,
+        ...(schedule.pauseReason === "rate-limit"
+          ? { eventRateLimitRunOffset: schedule.runs.length }
+          : {}),
         pausedAt: null,
-        nextRunAt: computeNextRunAt(schedule.cadence, now).toISOString(),
+        nextRunAt: computeNextRunAt(schedule.cadence, now)?.toISOString() ?? null,
         updatedAt: now.toISOString(),
       };
     });
@@ -557,9 +679,48 @@ export class ScheduleService {
   }
 
   async update(input: UpdateScheduleInput): Promise<StoredSchedule> {
+    if ((await this.inspect(input.id)).source) throw new Error("Edit paseo.json or use source set");
+    if (input.triggers !== undefined) validateAutomationTriggers(input.triggers);
+    if (input.actionConfig === undefined) return this.updateRecord(input);
+    // Validate outside the store lock; retry if another action patch wins meanwhile.
+    for (;;) {
+      const previous = (await this.inspect(input.id)).target;
+      const target = this.mergeActionConfig(previous, input.actionConfig);
+      if (!isDeepStrictEqual(previous, target)) await this.resolveCreateTarget(target);
+      const updated = await this.updateRecord(input, { previous, target });
+      if (updated) return updated;
+    }
+  }
+
+  private mergeActionConfig(
+    target: ScheduleTarget,
+    patch: NonNullable<UpdateScheduleInput["actionConfig"]>,
+  ): ScheduleTarget {
+    if (target.type !== "action") throw new Error("Action parameters require an action target");
+    const merged = { ...target, ...patch };
+    if (merged.timeoutMs === null) delete merged.timeoutMs;
+    return ScheduleTargetSchema.parse(merged);
+  }
+
+  private async updateRecord(input: UpdateScheduleInput): Promise<StoredSchedule>;
+  private async updateRecord(
+    input: UpdateScheduleInput,
+    action: { previous: ScheduleTarget; target: ScheduleTarget },
+  ): Promise<StoredSchedule | null>;
+  private async updateRecord(
+    input: UpdateScheduleInput,
+    action?: { previous: ScheduleTarget; target: ScheduleTarget },
+  ): Promise<StoredSchedule | null> {
+    let retry = false;
     const next = await this.store.update(input.id, async (schedule) => {
+      if (action && !isDeepStrictEqual(schedule.target, action.previous)) {
+        retry = true;
+        return schedule;
+      }
       const now = this.now();
       let updated: StoredSchedule = schedule;
+      if (input.triggers !== undefined) updated = { ...updated, triggers: input.triggers };
+      if (action) updated = { ...updated, target: action.target };
 
       if (input.prompt !== undefined) {
         updated = { ...updated, prompt: normalizePrompt(input.prompt) };
@@ -573,7 +734,9 @@ export class ScheduleService {
         const cadence = mergeScheduleCadenceTimezone(updated.cadence, input.cadence);
         validateScheduleCadence(cadence);
         const nextRunAt =
-          updated.status === "active" ? computeNextRunAt(cadence, now).toISOString() : null;
+          updated.status === "active"
+            ? (computeNextRunAt(cadence, now)?.toISOString() ?? null)
+            : null;
         updated = { ...updated, cadence, nextRunAt };
       }
 
@@ -605,10 +768,12 @@ export class ScheduleService {
 
       return { ...updated, updatedAt: now.toISOString() };
     });
-    return requireSchedule(next, input.id);
+    return retry ? null : requireSchedule(next, input.id);
   }
 
-  async delete(id: string): Promise<void> {
+  async delete(id: string, fromSource = false): Promise<void> {
+    if (!fromSource && (await this.inspect(id)).source)
+      throw new Error("Use source forget to delete a project automation");
     await this.store.delete(id);
   }
 
@@ -663,15 +828,25 @@ export class ScheduleService {
     return completed;
   }
 
-  async runOnce(id: string): Promise<StoredSchedule> {
+  async runOnce(id: string, event?: TriggerEvent): Promise<StoredSchedule> {
+    if (event) {
+      TriggerEventSchema.parse(event);
+      if (Buffer.byteLength(JSON.stringify(event.data ?? {})) > 16_384)
+        throw new Error("Event data exceeds 16KB");
+    }
     const schedule = await this.inspect(id);
+    if (schedule.source && schedule.status !== "active")
+      throw new Error("Use source enable --fingerprint before running this automation");
     if (schedule.status === "completed") {
       throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
     }
     if (this.runningScheduleIds.has(id)) {
       throw new ScheduleStateConflictError(`Schedule ${id} is already running`);
     }
-    await this.runSchedule(schedule, this.now(), { manual: true });
+    await this.runSchedule(schedule, this.now(), {
+      manual: true,
+      trigger: { type: "manual", ...(event ? { event } : {}) },
+    });
     return this.inspect(id);
   }
 
@@ -679,7 +854,7 @@ export class ScheduleService {
     const now = this.now();
     const schedules = await this.store.list();
     for (const schedule of schedules) {
-      if (schedule.status !== "active" || !schedule.nextRunAt) {
+      if (schedule.status !== "active") {
         continue;
       }
       if (this.runningScheduleIds.has(schedule.id)) {
@@ -689,7 +864,7 @@ export class ScheduleService {
         await this.completeScheduleIfDue(schedule.id, now);
         continue;
       }
-      if (new Date(schedule.nextRunAt).getTime() > now.getTime()) {
+      if (!schedule.nextRunAt || new Date(schedule.nextRunAt).getTime() > now.getTime()) {
         continue;
       }
       await this.runSchedule(schedule, now);
@@ -698,11 +873,7 @@ export class ScheduleService {
 
   private async completeScheduleIfDue(scheduleId: string, now: Date): Promise<void> {
     const updated = await this.store.update(scheduleId, (schedule) => {
-      if (
-        schedule.status !== "active" ||
-        !schedule.nextRunAt ||
-        !shouldCompleteSchedule(schedule, now)
-      ) {
+      if (schedule.status !== "active" || !shouldCompleteSchedule(schedule, now)) {
         return schedule;
       }
       return completeSchedule(schedule, now);
@@ -773,11 +944,12 @@ export class ScheduleService {
         updated.nextRunAt &&
         new Date(updated.nextRunAt).getTime() <= now.getTime()
       ) {
+        if (updated.cadence.type === "none") return { ...updated, nextRunAt: null };
         let nextRunAt = computeNextRunAt(updated.cadence, new Date(updated.nextRunAt));
         while (nextRunAt.getTime() <= now.getTime()) {
           nextRunAt = computeNextRunAt(updated.cadence, nextRunAt);
         }
-        updated = { ...updated, nextRunAt: nextRunAt.toISOString() };
+        updated = { ...updated, nextRunAt: nextRunAt?.toISOString() ?? null };
         dirty = true;
       }
 
@@ -835,7 +1007,7 @@ export class ScheduleService {
   private async runSchedule(
     schedule: StoredSchedule,
     now: Date,
-    options?: { manual?: boolean },
+    options?: { manual?: boolean; trigger?: RunTrigger },
   ): Promise<void> {
     const manual = options?.manual === true;
     // Reserve before store I/O; persisted history cannot prove a run is still alive.
@@ -847,6 +1019,7 @@ export class ScheduleService {
         runId = randomUUID();
         const runningRun: ScheduleRun = {
           id: runId,
+          trigger: options?.trigger ?? { type: "manual" },
           scheduledFor: now.toISOString(),
           startedAt: now.toISOString(),
           endedAt: null,
@@ -892,6 +1065,7 @@ export class ScheduleService {
       await this.deliverRun(finished, runId);
     } finally {
       this.runningScheduleIds.delete(schedule.id);
+      for (const listener of this.runFinished) listener(schedule.id);
     }
   }
 
@@ -939,6 +1113,7 @@ export class ScheduleService {
     const updatedSchedule = await this.store.update(scheduleId, (schedule) => {
       if (
         schedule.status !== "active" ||
+        schedule.cadence.type === "none" ||
         !schedule.nextRunAt ||
         shouldCompleteSchedule(schedule, now) ||
         new Date(schedule.nextRunAt).getTime() > now.getTime()
@@ -963,6 +1138,7 @@ export class ScheduleService {
       const runningRun: ScheduleRun = {
         id: runId,
         scheduledFor,
+        trigger: { type: "clock" },
         startedAt: now.toISOString(),
         endedAt: null,
         status: "running",
@@ -1033,7 +1209,10 @@ export class ScheduleService {
       } else if (updated.status === "completed") {
         // Completed concurrently (e.g. the target agent was archived mid-run);
         // record the run outcome but leave the schedule terminal — don't advance.
-      } else if (params.manual) {
+      } else if (
+        params.manual &&
+        completedRuns.find((run) => run.id === params.runId)?.trigger?.type !== "event"
+      ) {
         // Manual one-shot runs do not advance the cadence or recompute completion.
       } else if (shouldCompleteSchedule(updated, now)) {
         updated = completeSchedule(updated, now);
@@ -1042,7 +1221,7 @@ export class ScheduleService {
           ...updated,
           nextRunAt: null,
         };
-      } else {
+      } else if (updated.cadence.type !== "none") {
         // A final slot has no successor until its run limit is raised or cleared.
         // Every runner invocation has a recorded run with this id.
         const finishedRun = completedRuns.find((run) => run.id === params.runId)!;
@@ -1085,10 +1264,16 @@ export class ScheduleService {
     requireSchedule(updatedSchedule, params.scheduleId);
   }
 
+  private runAction(schedule: StoredSchedule, runId: string): Promise<ScheduleExecutionResult> {
+    if (!this.automationOptions.runAction) throw new Error("Action execution is unavailable");
+    return this.automationOptions.runAction(schedule, runId);
+  }
+
   private async executeSchedule(
     schedule: StoredSchedule,
     runId: string,
   ): Promise<ScheduleExecutionResult> {
+    if (schedule.target.type === "action") return this.runAction(schedule, runId);
     if (schedule.target.type === "agent") {
       const wrappedPrompt = formatSystemNotificationPrompt(buildScheduleFireBody(schedule, runId));
       const record = await this.agentStorage.get(schedule.target.agentId);
@@ -1181,7 +1366,7 @@ export class ScheduleService {
       if (created.initialPromptError) {
         throw created.initialPromptError;
       }
-      return await this.runScheduledAgent(agent.id, schedule.prompt);
+      return await this.runScheduledAgent(agent.id, promptForRun(schedule, runId));
     } finally {
       await this.archiveFinishedRun({
         scheduleId: schedule.id,
@@ -1254,6 +1439,13 @@ export class ScheduleService {
   }
 
   private async resolveCreateTarget(target: CreateScheduleTarget): Promise<ScheduleTarget> {
+    if (target.type === "action") {
+      ScheduleTargetSchema.parse(target);
+      if (!this.automationOptions.validateAction)
+        throw new Error(`No running plugin provides action "${target.action}"`);
+      await this.automationOptions.validateAction(target.action, target.params);
+      return target;
+    }
     if (target.type === "agent") {
       return target;
     }

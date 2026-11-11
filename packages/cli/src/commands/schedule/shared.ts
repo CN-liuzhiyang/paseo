@@ -15,6 +15,112 @@ import type {
 import { parseDuration } from "../../utils/duration.js";
 import { resolveProviderAndModel } from "../../utils/provider-model.js";
 import { everyMsToFiveFieldCron } from "@getpaseo/protocol/schedule/cadence";
+import { z } from "zod";
+import {
+  ActionConfigSchema,
+  EventTriggerSchema,
+  type AutomationTrigger,
+} from "@getpaseo/protocol/schedule/types";
+
+export interface AutomationFlags {
+  on?: string[];
+  action?: string;
+  param?: string[];
+  paramsJson?: string;
+  timeout?: string;
+}
+
+export function requireAutomationsSupport(
+  client: Pick<ScheduleDaemonClient, "getLastServerInfoMessage">,
+): void {
+  // COMPAT(automations): fork-only until upstream lands its own shape.
+  if (client.getLastServerInfoMessage()?.features?.automations !== true) {
+    throw {
+      code: "DAEMON_UPDATE_REQUIRED",
+      message: "This host does not support automations. Update the host.",
+    } satisfies CommandError;
+  }
+}
+
+export function usesAutomationFlags(options: AutomationFlags): boolean {
+  return (
+    options.on !== undefined ||
+    options.action !== undefined ||
+    options.param !== undefined ||
+    options.paramsJson !== undefined ||
+    options.timeout !== undefined
+  );
+}
+
+function parseFlagValue(value: string): string | number | boolean {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed === "boolean" || typeof parsed === "number" || typeof parsed === "string")
+      return parsed;
+  } catch {
+    /* Unquoted values are strings. */
+  }
+  return value;
+}
+
+export function parseParams(
+  options: Pick<AutomationFlags, "param" | "paramsJson">,
+): Record<string, unknown> {
+  const params =
+    options.paramsJson === undefined
+      ? {}
+      : z.record(z.string(), z.unknown()).parse(JSON.parse(options.paramsJson));
+  for (const entry of options.param ?? []) {
+    const equals = entry.indexOf("=");
+    if (equals < 1) throw new Error("--param must be k=v");
+    const key = entry.slice(0, equals);
+    Object.defineProperty(params, key, {
+      value: parseFlagValue(entry.slice(equals + 1)),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return params;
+}
+
+export function parseOn(values: string[]): AutomationTrigger[] {
+  return values.map((value) => {
+    const [head, ...fields] = value.split(",");
+    const [source, event, extra] = head.split(":");
+    if (extra !== undefined) throw new Error("--on must be source:event[,k=v...]");
+    const match: Record<string, string | number | boolean> = {};
+    for (const field of fields) {
+      const equals = field.indexOf("=");
+      if (equals < 1) throw new Error("--on match must be k=v");
+      Object.defineProperty(match, field.slice(0, equals), {
+        value: parseFlagValue(field.slice(equals + 1)),
+        enumerable: true,
+      });
+    }
+    return EventTriggerSchema.parse({
+      type: "event",
+      source,
+      event,
+      ...(fields.length ? { match } : {}),
+    });
+  });
+}
+
+export function parseActionTarget(
+  options: AutomationFlags,
+): Extract<ScheduleTarget, { type: "action" }> {
+  if (!options.action?.trim()) throw new Error("--action is required for action parameters");
+  const timeoutMs = options.timeout === undefined ? undefined : parseDuration(options.timeout);
+  if (timeoutMs !== undefined && timeoutMs > 3_600_000)
+    throw new Error("--timeout must not exceed 60m");
+  return {
+    type: "action",
+    action: options.action,
+    params: parseParams(options),
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  };
+}
 
 export interface ScheduleCommandOptions extends CommandOptions {
   host?: string;
@@ -71,7 +177,21 @@ export async function requireNewAgentSchedule(
   }
 }
 
+export async function requireVisibleSchedule(
+  client: ScheduleDaemonClient,
+  id: string,
+): Promise<void> {
+  const payload = await client.scheduleInspect({ id });
+  if (
+    payload.error ||
+    !payload.schedule ||
+    (payload.schedule.target.type === "agent" && !payload.schedule.triggers?.length)
+  )
+    throw new Error(payload.error ?? `Schedule not found: ${id}`);
+}
+
 export function formatCadence(cadence: ScheduleCadence): string {
+  if (cadence.type === "none") return "none";
   if (cadence.type === "cron") {
     const timezoneSuffix = cadence.timezone ? ` (${cadence.timezone})` : "";
     return `cron:${cadence.expression}${timezoneSuffix}`;
@@ -80,6 +200,7 @@ export function formatCadence(cadence: ScheduleCadence): string {
 }
 
 export function formatTarget(target: ScheduleTarget | ScheduleListItem["target"]): string {
+  if (target.type === "action") return `action:${target.action}`;
   if (target.type === "self") {
     return `self:${target.agentId.slice(0, 7)}`;
   }
@@ -148,25 +269,27 @@ function resolveScheduleTarget(args: {
   return { type: "agent", agentId: targetValue };
 }
 
-export function parseScheduleCreateInput(options: {
-  prompt: string;
-  every?: string;
-  cron?: string;
-  timezone?: string;
-  name?: string;
-  target?: string;
-  provider?: string;
-  mode?: string;
-  thinking?: string;
-  cwd?: string;
-  workspace?: string;
-  host?: string;
-  daemonTarget: import("../../utils/daemon-target.js").DaemonTarget;
-  maxRuns?: string;
-  expiresIn?: string;
-  runNow?: boolean;
-  deliver?: string;
-}): CreateScheduleInput {
+export function parseScheduleCreateInput(
+  options: AutomationFlags & {
+    prompt: string;
+    every?: string;
+    cron?: string;
+    timezone?: string;
+    name?: string;
+    target?: string;
+    provider?: string;
+    mode?: string;
+    thinking?: string;
+    cwd?: string;
+    workspace?: string;
+    host?: string;
+    daemonTarget: import("../../utils/daemon-target.js").DaemonTarget;
+    maxRuns?: string;
+    expiresIn?: string;
+    runNow?: boolean;
+    deliver?: string;
+  },
+): CreateScheduleInput {
   const prompt = options.prompt.trim();
   if (!prompt) {
     throw {
@@ -175,7 +298,9 @@ export function parseScheduleCreateInput(options: {
     } satisfies CommandError;
   }
 
-  const cadence = parseCadenceFromFlags(options.every, options.cron, options.timezone);
+  const cadence =
+    parseCadenceFromFlags(options.every, options.cron, options.timezone) ??
+    (options.on?.length ? { type: "none" as const } : undefined);
   if (!cadence) {
     throw {
       code: "INVALID_CADENCE",
@@ -183,14 +308,37 @@ export function parseScheduleCreateInput(options: {
     } satisfies CommandError;
   }
 
+  const runOnCreate = resolveRunOnCreate(options.runNow, cadence.type);
+  const target = parseCreateTarget(options);
+
+  const maxRuns =
+    options.maxRuns === undefined ? undefined : parsePositiveInt(options.maxRuns, "--max-runs");
+  const expiresAt =
+    options.expiresIn === undefined
+      ? undefined
+      : new Date(Date.now() + parseDuration(options.expiresIn)).toISOString();
+  return {
+    prompt,
+    ...(options.on ? { triggers: parseOn(options.on) } : {}),
+    cadence,
+    target,
+    runOnCreate,
+    ...(options.name?.trim() ? { name: options.name.trim() } : {}),
+    ...(maxRuns !== undefined ? { maxRuns } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...parseCreateDelivery(options.deliver),
+  };
+}
+
+function parseCreateTarget(
+  options: Parameters<typeof parseScheduleCreateInput>[0],
+): ScheduleTarget {
   const cwdInput = options.cwd?.trim();
   const workspaceId = parseWorkspaceFlag(options.workspace);
   // A workspace brings its own directory, so --cwd is not needed (not even with --host).
-  if (!workspaceId) {
+  if (!workspaceId && !options.action) {
     assertCwdForRemoteDaemon(options.daemonTarget, cwdInput);
   }
-
-  const runOnCreate = resolveRunOnCreate(options.runNow, cadence.type);
 
   const targetValue = options.target?.trim();
   const modeId = options.mode?.trim();
@@ -214,28 +362,30 @@ export function parseScheduleCreateInput(options: {
       modeId,
       thinkingOptionId,
     });
-  const target = resolveScheduleTarget({
-    targetValue,
-    hasExplicitNewAgentOption,
-    createNewAgentTarget,
-  });
-
-  const maxRuns =
-    options.maxRuns === undefined ? undefined : parsePositiveInt(options.maxRuns, "--max-runs");
-  const expiresAt =
-    options.expiresIn === undefined
-      ? undefined
-      : new Date(Date.now() + parseDuration(options.expiresIn)).toISOString();
-  return {
-    prompt,
-    cadence,
-    target,
-    runOnCreate,
-    ...(options.name?.trim() ? { name: options.name.trim() } : {}),
-    ...(maxRuns !== undefined ? { maxRuns } : {}),
-    ...(expiresAt ? { expiresAt } : {}),
-    ...parseCreateDelivery(options.deliver),
-  };
+  if (
+    options.action &&
+    [
+      options.provider,
+      options.mode,
+      options.thinking,
+      options.workspace,
+      options.cwd,
+      options.target,
+    ].some((value) => value !== undefined)
+  )
+    throw new Error("--action conflicts with agent target options");
+  if (
+    !options.action &&
+    [options.param, options.paramsJson, options.timeout].some((value) => value !== undefined)
+  )
+    throw new Error("Action parameters require --action");
+  return options.action
+    ? parseActionTarget(options)
+    : resolveScheduleTarget({
+        targetValue,
+        hasExplicitNewAgentOption,
+        createNewAgentTarget,
+      });
 }
 
 function parseCreateDelivery(deliver: string | undefined): { delivery?: ScheduleDelivery } {
@@ -318,7 +468,9 @@ function resolveRunOnCreate(
   return runNow ?? false;
 }
 
-export interface ScheduleUpdateOptionsInput {
+export interface ScheduleUpdateOptionsInput extends AutomationFlags {
+  clearOn?: boolean;
+  clock?: boolean;
   id: string;
   every?: string;
   cron?: string;
@@ -348,7 +500,15 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     } satisfies CommandError;
   }
 
-  const cadence = parseCadenceFromFlags(options.every, options.cron, options.timezone);
+  if (options.clearOn && options.on !== undefined) throw new Error("Use either --on or --clear-on");
+  if (options.clock === false && (options.every !== undefined || options.cron !== undefined))
+    throw new Error("--no-clock conflicts with --every/--cron");
+  const cadence =
+    options.clock === false
+      ? { type: "none" as const }
+      : parseCadenceFromFlags(options.every, options.cron, options.timezone);
+  const triggers = parseUpdateTriggers(options);
+  const actionConfig = parseActionConfig(options);
   const newAgentConfig = buildNewAgentConfigPatch(options);
   const maxRuns = parseUpdateMaxRuns(options);
   const expiresAt = parseUpdateExpiresAt(options);
@@ -356,15 +516,18 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
   const prompt = parseUpdatePrompt(options);
   const delivery = parseUpdateDelivery(options);
 
-  if (
-    name === undefined &&
-    prompt === undefined &&
-    cadence === undefined &&
-    newAgentConfig === undefined &&
-    maxRuns === undefined &&
-    expiresAt === undefined &&
-    delivery === undefined
-  ) {
+  const fields = [
+    name,
+    triggers,
+    actionConfig,
+    prompt,
+    cadence,
+    newAgentConfig,
+    maxRuns,
+    expiresAt,
+    delivery,
+  ];
+  if (!fields.some((field) => field !== undefined)) {
     throw {
       code: "NO_UPDATES",
       message: "Specify at least one field to update",
@@ -373,6 +536,8 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
 
   return {
     id,
+    ...(triggers !== undefined ? { triggers } : {}),
+    ...(actionConfig !== undefined ? { actionConfig } : {}),
     ...(name !== undefined ? { name } : {}),
     ...(prompt !== undefined ? { prompt } : {}),
     ...(cadence !== undefined ? { cadence } : {}),
@@ -381,6 +546,29 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     ...(delivery !== undefined ? { delivery } : {}),
   };
+}
+
+function parseActionConfig(options: AutomationFlags) {
+  if (
+    options.action === undefined &&
+    options.param === undefined &&
+    options.paramsJson === undefined &&
+    options.timeout === undefined
+  )
+    return undefined;
+  return ActionConfigSchema.parse({
+    ...(options.action !== undefined ? { action: options.action } : {}),
+    ...(options.param !== undefined || options.paramsJson !== undefined
+      ? { params: parseParams(options) }
+      : {}),
+    ...(options.timeout !== undefined ? { timeoutMs: parseDuration(options.timeout) } : {}),
+  });
+}
+
+function parseUpdateTriggers(options: ScheduleUpdateOptionsInput): AutomationTrigger[] | undefined {
+  if (options.clearOn) return [];
+  if (options.on === undefined) return undefined;
+  return parseOn(options.on);
 }
 
 function parseUpdateDelivery(
@@ -578,6 +766,9 @@ export interface ScheduleRow {
   nextRunAt: string | null;
   lastRunAt: string | null;
   delivery: string | null;
+  triggers?: string;
+  action?: string | null;
+  pauseReason?: string;
 }
 
 export function toScheduleRow(schedule: ScheduleListItem | ScheduleRecord): ScheduleRow {
@@ -593,5 +784,14 @@ export function toScheduleRow(schedule: ScheduleListItem | ScheduleRecord): Sche
     nextRunAt: schedule.nextRunAt,
     lastRunAt: schedule.lastRunAt,
     delivery: formatDelivery(schedule.delivery),
+    triggers: (schedule.triggers ?? [])
+      .map((trigger) =>
+        trigger.type === "event"
+          ? `${String(trigger.source)}:${String(trigger.event)}`
+          : trigger.type,
+      )
+      .join(", "),
+    action: schedule.target.type === "action" ? schedule.target.action : null,
+    pauseReason: schedule.pauseReason,
   };
 }

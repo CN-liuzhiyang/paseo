@@ -14,6 +14,8 @@ export const scheduleSchema: OutputSchema<ScheduleRow> = {
     { header: "NAME", field: "name", width: 20 },
     { header: "CADENCE", field: "cadence", width: 20 },
     { header: "TARGET", field: "target", width: 20 },
+    { header: "TRIGGERS", field: "triggers", width: 24 },
+    { header: "ACTION", field: "action", width: 20 },
     { header: "WORKSPACE", field: "workspace", width: 20 },
     { header: "STATUS", field: "status", width: 12 },
     { header: "NEXT RUN", field: "nextRunAt", width: 24 },
@@ -44,6 +46,8 @@ export function createScheduleInspectSchema(
 }
 
 export interface ScheduleLogRow {
+  trigger?: string;
+  coalesced?: number;
   id: string;
   status: string;
   startedAt: string;
@@ -63,6 +67,8 @@ export const scheduleLogSchema: OutputSchema<ScheduleLogRow> = {
     { header: "OUTPUT", field: "output", width: 40 },
     { header: "ERROR", field: "error", width: 40 },
     { header: "DELIVERY", field: "delivery", width: 30 },
+    { header: "TRIGGER", field: "trigger", width: 24 },
+    { header: "COALESCED", field: "coalesced", width: 12 },
   ],
 };
 
@@ -82,6 +88,8 @@ export function toScheduleLogRow(run: ScheduleRunRecord): ScheduleLogRow {
     output: run.output,
     error: run.error,
     delivery: formatRunDelivery(run.delivery),
+    trigger: run.trigger?.type,
+    coalesced: run.trigger?.type === "event" ? (run.trigger.coalesced ?? 0) : 0,
   };
 }
 
@@ -128,12 +136,12 @@ export function createScheduleInspectRows(schedule: ScheduleRecord): ScheduleIns
     { key: "Prompt", value: schedule.prompt },
     {
       key: "Cadence",
-      value:
-        schedule.cadence.type === "cron"
-          ? formatCadence(schedule.cadence)
-          : `every:${schedule.cadence.everyMs}ms`,
+      value: formatCadence(schedule.cadence),
     },
     { key: "Target", value: formatTarget(schedule.target) },
+    { key: "Triggers", value: JSON.stringify(schedule.triggers ?? []) },
+    { key: "Action", value: schedule.target.type === "action" ? schedule.target.action : "null" },
+    { key: "PauseReason", value: schedule.pauseReason ?? "null" },
     {
       key: "Workspace",
       value: (schedule.target.type === "new-agent" && schedule.target.config.workspaceId) || "null",

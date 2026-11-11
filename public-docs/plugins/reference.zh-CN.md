@@ -1948,6 +1948,60 @@ export default function contribute(server: PluginServerContext) {
 }
 ```
 
+## 自动化动作与事件 {#automation-actions-and-events}
+
+这些 fork 扩展点在 `PluginServerContext` 上是可选的。在服务端入口统一检查
+`registerAction`、`registerTriggerSource`、`emit` 是否为函数；旧宿主上为 undefined。
+可参考 fork 检出目录中的 `plugin-examples/automation-demo`。
+
+项目来源的动作在项目主检出目录运行。仓库 `paseo.json` 的 `automations` 定义由 `source scan` 发现；`source enable --fingerprint` 需要直连人类会话和 `daemon.manage`，插件与中继不能批准。本机收件人、模型和参数覆盖用 `source set`（直连人类会话及 `daemon.manage`，保持暂停状态），参数浅合并。定义变化后暂停，重新批准保留历史；删除定义变为 orphaned，只有 `source forget` 删除本机记录。底层客户端 `scheduleSources(operation, {id?, fingerprint?, overrides?})` 的 operation 为 list/scan/show/enable/disable/set/forget，先检查 `features.automationSources`。详见[项目来源](/zh-CN/docs/schedules-cli#project-sources)。
+
+`registerAction({ id, label?, description?, params, defaultTimeoutMs?, run })`
+注册 Zod 参数模式和处理函数。ID 格式为 `/^[a-z][a-z0-9._-]*$/`。
+动作重名时插件 ID 最小者生效，其余插件收到日志。宿主提供输入模式的 JSON Schema
+用于发现；创建、修改、执行时均由插件校验参数，包括转换。
+
+`run(input, context)` 接收 `{ params, prompt, run, trigger, cwd }`，prompt 原样传入。
+run 包含 automationId、automationName、runId；将稳定的 runId 用作外部幂等键。
+cwd 对项目来源为项目主检出目录，本机创建的自动化为 null。context 提供 paseo 和 AbortSignal。
+返回 `{ text, agentId? }`；文本最多 64KB，照常保存历史并投递。
+抛错、拒绝、插件崩溃、超时都会使本次运行失败，不重试，自动化仍保持 active。
+默认超时 10 分钟，可由动作或目标覆盖，最多 60 分钟。超时触发 abort 并丢弃迟到结果。
+取消需要插件配合：信号触发后应停止外部工作。
+
+参数可能来自任意持有 automation.manage 权限的客户端。动作必须按明确的操作白名单
+校验参数，例如 flow.run 只允许执行插件设置列出的流程；核心不提供任意命令动作。
+
+`registerTriggerSource({ id, label?, events })` 声明事件 ID；各事件可带 label、
+description 和用于展示可匹配字段的 `fields: string[]`。与出站渠道一样，入口返回后
+仍可注册。
+
+`await emit(sourceId, { event, id, occurredAt?, subject?, data?, causedBy? })`
+只能向本插件注册的来源发送已声明的事件。id 应为外部事件的稳定 ID。
+occurredAt 为 ISO 时间，默认收到时刻；data 为最多 16KB 的 JSON 对象。
+返回 `{ status, started, deferred, skipped }`；status 为 accepted、duplicate 或 stale，
+started 是自动化 ID 列表。接收事件不会等待动作和投递结束。
+
+事件触发按 data 顶层字段严格相等匹配，所有字段都要满足；任一触发匹配后每条 active
+自动化只跑一次。早于创建时刻或超过触发器允许时间（默认一小时）的事件跳过。
+每个来源最多保留最近 1000 个、七天内的事件 ID，重启后仍去重。核心不补发离线事件：
+来源插件负责游标和补发，可安全重发相同 ID。忙时保留一个待跑事件，后到者替换它，
+并增加 run.trigger.coalesced。待跑槽仅在内存，重启会丢失。
+
+事件 ID 必须在整个事件源内唯一，不是在单个事件类型内唯一。多个插件注册同一事件源 ID
+时，插件 ID 最小的拥有该来源，其余插件的 emit 会被拒绝。
+每个插件每分钟最多发送 120 个事件，补发也计入；插件需自行退避并重试被拒绝的补发事件。
+每条自动化每小时最多由事件触发 20 次运行，
+超限自动暂停并记录 `pauseReason: "rate-limit"`，需要人恢复；恢复后事件额度从零计数。
+事件若由某次运行引起，应把 runId（也是渠道的 idempotencyKey）填入 causedBy。
+该自动化不会触发自己，因果深度超过三则丢弃。若 causedBy 对应的运行已找不到，因果
+防环无法生效，由每小时 20 次限流兜底。事件数据不可信：代理提示词将它标为
+引用数据，动作原样收到数据。外部事件触发的自动化应避免使用不受限的代理权限模式。
+
+RunTrigger 为 clock、manual 或 event。event 包含 source、event、eventId、depth，
+以及可选 subject、data、coalesced。手动测试可携带 event 对象，但仍记为 manual，
+不参与事件去重。
+
 ## 出站渠道 {#outbound-channels}
 
 定时任务可以指定一个投递目标 `{ channel, to }`。它的某次运行结束时，Paseo 会把结果交给注册了该渠道的插件。用 `@getpaseo/plugin/server` 中的 `server.registerChannel()` 注册渠道。在早于它的主机上，它是 undefined。

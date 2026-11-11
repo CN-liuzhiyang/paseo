@@ -1,3 +1,10 @@
+import type {
+  ScheduleCadence,
+  ScheduleTarget,
+  AutomationTrigger,
+  ActionConfig,
+  TriggerEvent,
+} from "@getpaseo/protocol/schedule/types";
 import {
   ChunkedTransport,
   ChunkedTransportProtocolError,
@@ -893,12 +900,10 @@ export type ProjectListOptions = Omit<ProjectListRequest, "type" | "requestId"> 
 export interface CreateScheduleOptions {
   prompt: string;
   name?: string | null;
-  cadence: {
-    type: "cron";
-    expression: string;
-    timezone?: string;
-  };
+  cadence: ScheduleCadence;
+  triggers?: AutomationTrigger[];
   target:
+    | Extract<ScheduleTarget, { type: "action" }>
     | {
         type: "self";
         agentId: string;
@@ -949,11 +954,9 @@ export interface UpdateScheduleOptions {
   id: string;
   name?: string | null;
   prompt?: string;
-  cadence?: {
-    type: "cron";
-    expression: string;
-    timezone?: string;
-  };
+  cadence?: ScheduleCadence;
+  triggers?: AutomationTrigger[];
+  actionConfig?: ActionConfig;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
@@ -6664,6 +6667,7 @@ export class DaemonClient {
         type: "schedule/create",
         prompt: options.prompt,
         cadence: options.cadence,
+        triggers: options.triggers,
         target: options.target,
         ...(options.name ? { name: options.name } : {}),
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
@@ -6681,6 +6685,69 @@ export class DaemonClient {
       requestId,
       message: { type: "schedule/channels" },
       responseType: "schedule/channels/response",
+    });
+  }
+
+  async scheduleSources(
+    operation: "list" | "scan" | "show" | "enable" | "disable" | "set" | "forget",
+    options: {
+      id?: string;
+      fingerprint?: string;
+      overrides?: import("@getpaseo/protocol/schedule/types").AutomationSourceOverrides;
+    } = {},
+  ) {
+    switch (operation) {
+      case "list":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.list.request", ...options },
+          responseType: "schedule.sources.list.response",
+        });
+      case "scan":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.scan.request", ...options },
+          responseType: "schedule.sources.scan.response",
+        });
+      case "show":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.show.request", ...options },
+          responseType: "schedule.sources.show.response",
+        });
+      case "enable":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.enable.request", ...options },
+          responseType: "schedule.sources.enable.response",
+        });
+      case "disable":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.disable.request", ...options },
+          responseType: "schedule.sources.disable.response",
+        });
+      case "set":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.set.request", ...options },
+          responseType: "schedule.sources.set.response",
+        });
+      case "forget":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.forget.request", ...options },
+          responseType: "schedule.sources.forget.response",
+        });
+    }
+  }
+
+  async scheduleActions(requestId?: string) {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "schedule/actions" },
+      responseType: "schedule/actions/response",
+    });
+  }
+
+  async scheduleTriggers(requestId?: string) {
+    return this.sendCorrelatedSessionRequest({
+      requestId,
+      message: { type: "schedule/triggers" },
+      responseType: "schedule/triggers/response",
     });
   }
 
@@ -6749,12 +6816,15 @@ export class DaemonClient {
     });
   }
 
-  async scheduleRunOnce(options: InspectScheduleOptions): Promise<ScheduleRunOncePayload> {
+  async scheduleRunOnce(
+    options: InspectScheduleOptions & { event?: TriggerEvent },
+  ): Promise<ScheduleRunOncePayload> {
     return this.sendCorrelatedSessionRequest({
       requestId: options.requestId,
       message: {
         type: "schedule/run-once",
         scheduleId: options.id,
+        event: options.event,
       },
       responseType: "schedule/run-once/response",
     });
@@ -6766,6 +6836,8 @@ export class DaemonClient {
       message: {
         type: "schedule/update",
         scheduleId: options.id,
+        triggers: options.triggers,
+        actionConfig: options.actionConfig,
         ...(options.name !== undefined ? { name: options.name } : {}),
         ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
         ...(options.cadence !== undefined ? { cadence: options.cadence } : {}),
