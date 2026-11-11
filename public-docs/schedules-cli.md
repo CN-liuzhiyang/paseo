@@ -14,11 +14,11 @@ Run workspaces are archived when each run ends by default. The CLI has no **Arch
 
 ## Project sources
 
-Define an `automations` object in project `paseo.json`. Keys match `[a-z][a-z0-9-]*`; definitions contain `prompt`, `target`, and `triggers` (every/cron/event, at most one clock). Repository delivery contains only `channel`. Git projects read the default branch's committed file from local refs. Startup, ten-minute intervals and manual scans discover changes.
+Define an `automations` object in project `paseo.json`. Keys match `[a-z][a-z0-9-]*`; definitions contain `prompt`, `target`, and `triggers` (every/cron/event, at most one clock). Targets allow `action` or `new-agent`; repository new-agent config allows only `title`, with provider/model set locally. Repository delivery contains only `channel`; local delivery must use that channel. Git projects read the default branch's committed file from local refs. Startup, ten-minute intervals and manual scans discover changes.
 
-Run `paseo automation source ls|scan`, review `source show <id>`, set local overrides with `source set <id> --deliver chat:me --provider codex/model --param key=value`, then approve with `source enable <id> --fingerprint <sha256>`. Enable requires a direct human connection and `daemon.manage`; relay and plugin sessions cannot approve. Set also requires `daemon.manage`. Other operations require `automation.manage`.
+Run `paseo automation source ls|scan`, review `source show <id>`, set local overrides with `source set <id> --deliver chat:me --param key=value`, then approve with `source enable <id> --fingerprint <sha256>`. Enable requires a direct human connection and `daemon.manage`; relay and plugin sessions cannot approve. Set also requires a direct human connection and `daemon.manage`; it preserves paused state. Other operations require `automation.manage`.
 
-Changed definitions pause until reapproved; show displays current/approved definitions and overrides. Parameters merge shallowly. Use `source disable <id>` to pause and `source forget <id>` to delete the local source and generated schedule. Removed definitions become orphaned and retain history. Ordinary update/resume cannot change source schedules. Missing action/event plugins appear in ERROR and prevent approval. The host must advertise `features.automationSources`.
+Changed definitions pause until reapproved; show displays current/approved definitions and overrides. Action parameters merge shallowly. Use `source disable <id>` to pause and `source forget <id>` to delete the local source and generated schedule. Removed definitions become orphaned and retain history. Ordinary update/resume/delete cannot change source schedules. Missing action/event plugins appear in ERROR and prevent approval. The host must advertise `features.automationSources`.
 
 ## Plugin automations
 

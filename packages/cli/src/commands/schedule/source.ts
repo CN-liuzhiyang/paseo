@@ -31,6 +31,32 @@ export function requireSourcesSupport(
     throw new Error("This host does not support automation sources. Update the host.");
   return client.scheduleSources.bind(client);
 }
+export function renderSourceShow(result: { data: AutomationSource | AutomationSource[] }) {
+  const sources = Array.isArray(result.data) ? result.data : [result.data];
+  return sources
+    .map((source) =>
+      [
+        source.id + " " + source.automationId + " " + source.state,
+        source.error,
+        "CHANGED FIELDS " +
+          Object.keys({ ...source.approvedDefinition, ...source.definition })
+            .filter(
+              (key) =>
+                JSON.stringify(source.approvedDefinition?.[key]) !==
+                JSON.stringify(source.definition[key]),
+            )
+            .join(", "),
+        "CURRENT DEFINITION\n" + JSON.stringify(source.definition, null, 2),
+        "APPROVED DEFINITION\n" + JSON.stringify(source.approvedDefinition ?? null, null, 2),
+        "OVERRIDES\n" + JSON.stringify(source.overrides ?? {}, null, 2),
+        "FINGERPRINT " + source.seenFingerprint,
+        "APPROVED " + (source.approvedFingerprint ?? "none"),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .join("\n\n");
+}
 export function createSourceCommand(): Command {
   const source = new Command("source").description("Review and approve project automation sources");
   for (const op of ["ls", "scan", "show", "enable", "disable", "set", "forget"] as const) {
@@ -75,41 +101,11 @@ export function createSourceCommand(): Command {
             overrides,
           });
           if (result.error) throw new Error(result.error);
-          const columns =
-            op === "show"
-              ? [
-                  ...schema.columns,
-                  {
-                    header: "CHANGED FIELDS",
-                    field: (item: AutomationSource) =>
-                      Object.keys({ ...item.approvedDefinition, ...item.definition })
-                        .filter(
-                          (key) =>
-                            JSON.stringify(item.approvedDefinition?.[key]) !==
-                            JSON.stringify(item.definition[key]),
-                        )
-                        .join(", "),
-                    width: 40,
-                  },
-                  { header: "APPROVED", field: "approvedFingerprint" as const, width: 64 },
-                  {
-                    header: "CURRENT DEFINITION",
-                    field: (s: AutomationSource) => JSON.stringify(s.definition),
-                    width: 100,
-                  },
-                  {
-                    header: "APPROVED DEFINITION",
-                    field: (s: AutomationSource) => JSON.stringify(s.approvedDefinition),
-                    width: 100,
-                  },
-                  {
-                    header: "OVERRIDES",
-                    field: (s: AutomationSource) => JSON.stringify(s.overrides),
-                    width: 80,
-                  },
-                ]
-              : schema.columns;
-          return { type: "list", data: result.sources, schema: { ...schema, columns } };
+          return {
+            type: "list",
+            data: result.sources,
+            schema: { ...schema, renderHuman: op === "show" ? renderSourceShow : undefined },
+          };
         } finally {
           await client.close();
         }

@@ -1954,7 +1954,7 @@ export default function contribute(server: PluginServerContext) {
 `registerAction`、`registerTriggerSource`、`emit` 是否为函数；旧宿主上为 undefined。
 可参考 fork 检出目录中的 `plugin-examples/automation-demo`。
 
-项目来源的动作在项目主检出目录运行。仓库 `paseo.json` 的 `automations` 定义由 `source scan` 发现；`source enable --fingerprint` 需要直连人类会话和 `daemon.manage`，插件与中继不能批准。本机收件人、模型和参数覆盖用 `source set`，参数浅合并。定义变化后暂停，重新批准保留历史；删除定义变为 orphaned，只有 `source forget` 删除本机记录。底层客户端 `scheduleSources(operation, {id?, fingerprint?, overrides?})` 的 operation 为 list/scan/show/enable/disable/set/forget，先检查 `features.automationSources`。详见[项目来源](/zh-CN/docs/schedules-cli#project-sources)。
+项目来源的动作在项目主检出目录运行。仓库 `paseo.json` 的 `automations` 定义由 `source scan` 发现；`source enable --fingerprint` 需要直连人类会话和 `daemon.manage`，插件与中继不能批准。本机收件人、模型和参数覆盖用 `source set`（直连人类会话及 `daemon.manage`，保持暂停状态），参数浅合并。定义变化后暂停，重新批准保留历史；删除定义变为 orphaned，只有 `source forget` 删除本机记录。底层客户端 `scheduleSources(operation, {id?, fingerprint?, overrides?})` 的 operation 为 list/scan/show/enable/disable/set/forget，先检查 `features.automationSources`。详见[项目来源](/zh-CN/docs/schedules-cli#project-sources)。
 
 `registerAction({ id, label?, description?, params, defaultTimeoutMs?, run })`
 注册 Zod 参数模式和处理函数。ID 格式为 `/^[a-z][a-z0-9._-]*$/`。

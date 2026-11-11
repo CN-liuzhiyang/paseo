@@ -12,11 +12,11 @@ nav: CLI
 
 ## 项目来源 {#project-sources}
 
-在项目 `paseo.json` 的 `automations` 对象中定义自动化。键匹配 `[a-z][a-z0-9-]*`；定义包含 `prompt`、`target`、`triggers`（every/cron/event，最多一个时钟）。仓库 delivery 只能填 channel。Git 项目读取默认分支已提交文件的本地引用；启动、每十分钟或手动扫描时读取。
+在项目 `paseo.json` 的 `automations` 对象中定义自动化。键匹配 `[a-z][a-z0-9-]*`；定义包含 `prompt`、`target`、`triggers`（every/cron/event，最多一个时钟）。目标只允许 action 或 new-agent；仓库 new-agent config 只能填 title，provider/model 在本机设置。仓库 delivery 只能填 channel，本机投递必须用同一 channel。Git 项目读取默认分支已提交文件的本地引用；启动、每十分钟或手动扫描时读取。
 
-用 `paseo automation source ls|scan` 发现来源，`source show <id>` 查看定义，再用 `source set <id> --deliver chat:me --provider codex/model --param key=value` 设置本机覆盖。用 `source enable <id> --fingerprint <sha256>` 批准：需要直连人类会话及 `daemon.manage`，中继和插件不能批准。set 同样需要 `daemon.manage`，其它操作需要 `automation.manage`。
+用 `paseo automation source ls|scan` 发现来源，`source show <id>` 查看定义，再用 `source set <id> --deliver chat:me --param key=value` 设置本机覆盖。用 `source enable <id> --fingerprint <sha256>` 批准：需要直连人类会话及 `daemon.manage`，中继和插件不能批准。set 同样需要直连人类会话及 `daemon.manage`，保持暂停状态，其它操作需要 `automation.manage`。
 
-定义变化后暂停，重新批准才恢复；show 展示当前/批准定义和覆盖。参数浅合并。`source disable <id>` 暂停；`source forget <id>` 删除本机来源和生成的计划。定义消失时记为 orphaned，保留历史。普通 update/resume 不能修改来源计划。缺少动作或事件插件时 ERROR 列显示缺少插件，不能批准。宿主必须支持 `features.automationSources`。
+定义变化后暂停，重新批准才恢复；show 展示当前/批准定义和覆盖。动作参数浅合并。`source disable <id>` 暂停；`source forget <id>` 删除本机来源和生成的计划。定义消失时记为 orphaned，保留历史。普通 update/resume/delete 不能修改来源计划。缺少动作或事件插件时 ERROR 列显示缺少插件，不能批准。宿主必须支持 `features.automationSources`。
 
 ## 插件自动化 {#plugin-automations}
 
