@@ -33,8 +33,8 @@ const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 // on 2026-11-10 for `paseo workspace label`, a generic CLI for the daemon's existing workspace labels.
 // Raised to 210/16000 on 2026-11-11 for approved automation extension points: plugin actions,
 // event sources and project definitions (stages 1a/1b). Reduce when upstream absorbs them.
-const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 205);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 15500);
+const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 210);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 16000);
 
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are
