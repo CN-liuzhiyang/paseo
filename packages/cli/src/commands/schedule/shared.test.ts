@@ -1,3 +1,4 @@
+import { requireSourcesSupport } from "./source.js";
 import { describe, expect, test, vi } from "vitest";
 import { Command } from "commander";
 import * as scheduleShared from "./shared.js";
@@ -710,5 +711,6 @@ describe("automation flags", () => {
   test("rejects new parameters against old daemons", () => {
     const client = { getLastServerInfoMessage: () => ({ features: {} }) };
     expect(() => requireAutomationsSupport(client)).toThrow();
+    expect(() => requireSourcesSupport(client)).toThrow("Update the host");
   });
 });

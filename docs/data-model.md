@@ -399,8 +399,12 @@ One file per schedule. ID is 8 hex characters.
 | `triggers`                | `AutomationTrigger[]?`                                        | Non-clock triggers; absent means empty                      |
 | `pauseReason`             | `string?`                                                     | Cleared on resume                                           |
 | `eventRateLimitRunOffset` | `number?`                                                     | Run-history boundary reset when resuming a rate-limit pause |
-| `source`                  | `{ kind: "project", projectKey, automationId, fingerprint }?` | Reserved for project sources                                |
+| `source`                  | `{ kind: "project", projectKey, automationId, fingerprint }?` | Approved project definition reference                       |
 | `runs`                    | `ScheduleRun[]`                                               | Execution history                                           |
+
+### Project automation sources
+
+`automation-sources.json` stores project keys, checkout paths, states (pending/enabled/disabled/orphaned), seen/approved SHA-256 fingerprints, current/approved definitions, local overrides and schedule IDs. Writes are atomic. Generated schedules carry project source references; reapproval preserves run history. Repository definitions never contain delivery recipients.
 
 ### Nested: ScheduleCadence (discriminated union on `type`)
 

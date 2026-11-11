@@ -208,8 +208,13 @@ export interface ScheduleUpdatePayload {
 }
 
 export interface ScheduleDaemonClient {
+  scheduleSources?: import("@getpaseo/client/internal/daemon-client").DaemonClient["scheduleSources"];
   getLastServerInfoMessage(): {
-    features?: { scheduleWorkspaceTarget?: boolean; automations?: boolean };
+    features?: {
+      scheduleWorkspaceTarget?: boolean;
+      automations?: boolean;
+      automationSources?: boolean;
+    };
   } | null;
   scheduleCreate(input: CreateScheduleInput): Promise<ScheduleCreatePayload>;
   scheduleList(): Promise<ScheduleListPayload>;

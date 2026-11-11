@@ -2256,6 +2256,8 @@ These fork extension points are optional on `PluginServerContext`. Check once in
 server entry that `registerAction`, `registerTriggerSource` and `emit` are functions.
 They are undefined on older hosts. See `plugin-examples/automation-demo` in the fork checkout.
 
+Project-source actions run in the project main checkout. Repository `paseo.json` automations are discovered with `source scan`; `source enable --fingerprint` requires a direct human connection and `daemon.manage`. Plugins and relay clients cannot approve. Set local recipients, models and shallow parameter overrides with `source set`. Changed definitions pause until reapproved, preserving history; removed definitions become orphaned until `source forget`. The low-level client exposes `scheduleSources(operation, {id?, fingerprint?, overrides?})` for list/scan/show/enable/disable/set/forget; gate on `features.automationSources`. See [project sources](/docs/schedules-cli#project-sources).
+
 `registerAction({ id, label?, description?, params, defaultTimeoutMs?, run })` registers
 a Zod parameter schema and a handler. IDs use `/^[a-z][a-z0-9._-]*$/`. When plugins
 share an action ID, the lowest plugin ID wins; shadowed plugins receive a log entry.
@@ -2264,8 +2266,7 @@ parameters at creation, update and execution, including transformations.
 
 `run(input, context)` receives `{ params, prompt, run, trigger, cwd }`. The original
 prompt is unchanged. `run` contains `automationId`, `automationName` and `runId`;
-use the stable run ID as your external idempotency key. `cwd` is currently null,
-reserved for project sources. `context` supplies `paseo` and an `AbortSignal`.
+use the stable run ID as your external idempotency key. `cwd` is the project main checkout for project sources, and null for locally created automations. `context` supplies `paseo` and an `AbortSignal`.
 Return `{ text, agentId? }`. Results are limited to 64KB and use the schedule's
 normal history and delivery path. Throwing, rejection, a crashed plugin or timeout
 fails that run, with no retry; the automation stays active. The default timeout is

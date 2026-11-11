@@ -1,3 +1,4 @@
+import { createSourceCommand } from "./source.js";
 import { Command, Option } from "commander";
 import { withOutput } from "../../output/index.js";
 import { addJsonAndDaemonHostOptions } from "../../utils/command-options.js";
@@ -18,6 +19,8 @@ export function createScheduleCommand(): Command {
   const schedule = new Command("schedule")
     .alias("automation")
     .description("Manage recurring schedules");
+
+  schedule.addCommand(createSourceCommand());
 
   addJsonAndDaemonHostOptions(
     schedule

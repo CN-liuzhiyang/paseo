@@ -1954,6 +1954,8 @@ export default function contribute(server: PluginServerContext) {
 `registerAction`、`registerTriggerSource`、`emit` 是否为函数；旧宿主上为 undefined。
 可参考 fork 检出目录中的 `plugin-examples/automation-demo`。
 
+项目来源的动作在项目主检出目录运行。仓库 `paseo.json` 的 `automations` 定义由 `source scan` 发现；`source enable --fingerprint` 需要直连人类会话和 `daemon.manage`，插件与中继不能批准。本机收件人、模型和参数覆盖用 `source set`，参数浅合并。定义变化后暂停，重新批准保留历史；删除定义变为 orphaned，只有 `source forget` 删除本机记录。底层客户端 `scheduleSources(operation, {id?, fingerprint?, overrides?})` 的 operation 为 list/scan/show/enable/disable/set/forget，先检查 `features.automationSources`。详见[项目来源](/zh-CN/docs/schedules-cli#project-sources)。
+
 `registerAction({ id, label?, description?, params, defaultTimeoutMs?, run })`
 注册 Zod 参数模式和处理函数。ID 格式为 `/^[a-z][a-z0-9._-]*$/`。
 动作重名时插件 ID 最小者生效，其余插件收到日志。宿主提供输入模式的 JSON Schema
@@ -1961,7 +1963,7 @@ export default function contribute(server: PluginServerContext) {
 
 `run(input, context)` 接收 `{ params, prompt, run, trigger, cwd }`，prompt 原样传入。
 run 包含 automationId、automationName、runId；将稳定的 runId 用作外部幂等键。
-cwd 当前为 null，为项目来源预留。context 提供 paseo 和 AbortSignal。
+cwd 对项目来源为项目主检出目录，本机创建的自动化为 null。context 提供 paseo 和 AbortSignal。
 返回 `{ text, agentId? }`；文本最多 64KB，照常保存历史并投递。
 抛错、拒绝、插件崩溃、超时都会使本次运行失败，不重试，自动化仍保持 active。
 默认超时 10 分钟，可由动作或目标覆盖，最多 60 分钟。超时触发 abort 并丢弃迟到结果。

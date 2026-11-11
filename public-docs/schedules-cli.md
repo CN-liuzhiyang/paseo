@@ -12,6 +12,14 @@ category: Schedules
 
 Run workspaces are archived when each run ends by default. The CLI has no **Archive on finish** flag; [change the option in the app](/docs/schedules#keep-run-workspaces) to keep subsequent run workspaces active.
 
+## Project sources
+
+Define an `automations` object in project `paseo.json`. Keys match `[a-z][a-z0-9-]*`; definitions contain `prompt`, `target`, and `triggers` (every/cron/event, at most one clock). Repository delivery contains only `channel`. Git projects read the default branch's committed file from local refs. Startup, ten-minute intervals and manual scans discover changes.
+
+Run `paseo automation source ls|scan`, review `source show <id>`, set local overrides with `source set <id> --deliver chat:me --provider codex/model --param key=value`, then approve with `source enable <id> --fingerprint <sha256>`. Enable requires a direct human connection and `daemon.manage`; relay and plugin sessions cannot approve. Set also requires `daemon.manage`. Other operations require `automation.manage`.
+
+Changed definitions pause until reapproved; show displays current/approved definitions and overrides. Parameters merge shallowly. Use `source disable <id>` to pause and `source forget <id>` to delete the local source and generated schedule. Removed definitions become orphaned and retain history. Ordinary update/resume cannot change source schedules. Missing action/event plugins appear in ERROR and prevent approval. The host must advertise `features.automationSources`.
+
 ## Plugin automations
 
 `paseo automation` aliases the same command tree as `paseo schedule`. A host must
