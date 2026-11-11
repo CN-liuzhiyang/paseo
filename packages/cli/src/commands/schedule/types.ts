@@ -1,5 +1,6 @@
 import type {
   AutomationTrigger,
+  ActionConfig,
   RunTrigger,
   TriggerEvent,
   ScheduleAction,
@@ -193,7 +194,7 @@ export interface UpdateScheduleInput {
   prompt?: string;
   cadence?: ScheduleCadence;
   triggers?: AutomationTrigger[];
-  actionTarget?: Extract<ScheduleTarget, { type: "action" }>;
+  actionConfig?: ActionConfig;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;

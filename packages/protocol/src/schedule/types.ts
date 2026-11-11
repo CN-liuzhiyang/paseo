@@ -18,6 +18,17 @@ export const ScheduleCadenceSchema = z.discriminatedUnion("type", [
 ]);
 export type ScheduleCadence = z.infer<typeof ScheduleCadenceSchema>;
 
+export const ActionTargetSchema = z.object({
+  type: z.literal("action"),
+  action: z.string().trim().min(1),
+  params: z.record(z.string(), z.unknown()),
+  timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+});
+export const ActionConfigSchema = ActionTargetSchema.omit({ type: true }).partial().extend({
+  timeoutMs: ActionTargetSchema.shape.timeoutMs.nullable(),
+});
+export type ActionConfig = z.infer<typeof ActionConfigSchema>;
+
 export const ScheduleTargetSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent"),
@@ -43,12 +54,7 @@ export const ScheduleTargetSchema = z.discriminatedUnion("type", [
       mcpServers: z.record(z.string(), z.unknown()).optional(),
     }),
   }),
-  z.object({
-    type: z.literal("action"),
-    action: z.string().trim().min(1),
-    params: z.record(z.string(), z.unknown()),
-    timeoutMs: z.number().int().positive().max(3_600_000).optional(),
-  }),
+  ActionTargetSchema,
 ]);
 export type ScheduleTarget = z.infer<typeof ScheduleTargetSchema>;
 
@@ -253,7 +259,7 @@ export interface UpdateScheduleInput {
   prompt?: string;
   cadence?: ScheduleCadence;
   triggers?: AutomationTrigger[];
-  actionTarget?: Extract<ScheduleTarget, { type: "action" }>;
+  actionConfig?: ActionConfig;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;

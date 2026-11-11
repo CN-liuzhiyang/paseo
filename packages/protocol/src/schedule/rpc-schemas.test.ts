@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { ScheduleCreateRequestSchema, ScheduleUpdateRequestSchema } from "./rpc-schemas.js";
 
+it("accepts partial action config and nullable timeout reset", () => {
+  const request = {
+    type: "schedule/update",
+    requestId: "patch",
+    scheduleId: "one",
+    actionConfig: { timeoutMs: null },
+  };
+  expect(ScheduleUpdateRequestSchema.parse(request)).toEqual(request);
+  expect(
+    ScheduleUpdateRequestSchema.parse({ ...request, actionConfig: { params: { text: "hi" } } })
+      .actionConfig,
+  ).toEqual({ params: { text: "hi" } });
+});
+
 describe("schedule RPC schemas", () => {
   it("round-trips new-agent run options on create requests", () => {
     expect(

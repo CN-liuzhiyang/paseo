@@ -2,6 +2,7 @@ import type {
   ScheduleCadence,
   ScheduleTarget,
   AutomationTrigger,
+  ActionConfig,
   TriggerEvent,
 } from "@getpaseo/protocol/schedule/types";
 import {
@@ -955,7 +956,7 @@ export interface UpdateScheduleOptions {
   prompt?: string;
   cadence?: ScheduleCadence;
   triggers?: AutomationTrigger[];
-  actionTarget?: Extract<ScheduleTarget, { type: "action" }>;
+  actionConfig?: ActionConfig;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
@@ -6789,7 +6790,7 @@ export class DaemonClient {
         type: "schedule/update",
         scheduleId: options.id,
         triggers: options.triggers,
-        actionTarget: options.actionTarget,
+        actionConfig: options.actionConfig,
         ...(options.name !== undefined ? { name: options.name } : {}),
         ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
         ...(options.cadence !== undefined ? { cadence: options.cadence } : {}),

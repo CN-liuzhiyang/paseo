@@ -7,6 +7,8 @@ import {
   ScheduleSummarySchema,
   StoredScheduleSchema,
   ScheduleTargetSchema,
+  ActionTargetSchema,
+  ActionConfigSchema,
   AutomationTriggerSchema,
   TriggerEventSchema,
   ScheduleActionSchema,
@@ -31,7 +33,7 @@ const ScheduleCreateTargetSchema = z.discriminatedUnion("type", [
     type: z.literal("new-agent"),
     config: ScheduleCreateNewAgentConfigSchema,
   }),
-  ScheduleTargetSchema.options[2],
+  ActionTargetSchema,
 ]);
 
 export const ScheduleCreateRequestSchema = z.object({
@@ -114,7 +116,7 @@ export const ScheduleUpdateRequestSchema = z.object({
   prompt: z.string().min(1).optional(),
   cadence: ScheduleCadenceSchema.optional(),
   triggers: z.array(AutomationTriggerSchema).optional(),
-  actionTarget: ScheduleTargetSchema.options[2].optional(),
+  actionConfig: ActionConfigSchema.optional(),
   newAgentConfig: ScheduleUpdateNewAgentConfigSchema.optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),

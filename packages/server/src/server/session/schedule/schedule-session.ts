@@ -287,7 +287,7 @@ export class ScheduleSession {
       const schedule = await this.scheduleService.update({
         id: request.scheduleId,
         triggers: request.triggers,
-        actionTarget: request.actionTarget,
+        actionConfig: request.actionConfig,
         ...(request.name !== undefined ? { name: request.name } : {}),
         ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
         ...(request.cadence !== undefined ? { cadence: request.cadence } : {}),

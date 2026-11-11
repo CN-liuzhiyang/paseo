@@ -16,7 +16,11 @@ import { parseDuration } from "../../utils/duration.js";
 import { resolveProviderAndModel } from "../../utils/provider-model.js";
 import { everyMsToFiveFieldCron } from "@getpaseo/protocol/schedule/cadence";
 import { z } from "zod";
-import { EventTriggerSchema, type AutomationTrigger } from "@getpaseo/protocol/schedule/types";
+import {
+  ActionConfigSchema,
+  EventTriggerSchema,
+  type AutomationTrigger,
+} from "@getpaseo/protocol/schedule/types";
 
 export interface AutomationFlags {
   on?: string[];
@@ -504,7 +508,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
       ? { type: "none" as const }
       : parseCadenceFromFlags(options.every, options.cron, options.timezone);
   const triggers = parseUpdateTriggers(options);
-  const actionTarget = options.action ? parseActionTarget(options) : undefined;
+  const actionConfig = parseActionConfig(options);
   const newAgentConfig = buildNewAgentConfigPatch(options);
   const maxRuns = parseUpdateMaxRuns(options);
   const expiresAt = parseUpdateExpiresAt(options);
@@ -515,10 +519,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
   const fields = [
     name,
     triggers,
-    actionTarget,
-    options.param,
-    options.paramsJson,
-    options.timeout,
+    actionConfig,
     prompt,
     cadence,
     newAgentConfig,
@@ -536,7 +537,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
   return {
     id,
     ...(triggers !== undefined ? { triggers } : {}),
-    ...(actionTarget !== undefined ? { actionTarget } : {}),
+    ...(actionConfig !== undefined ? { actionConfig } : {}),
     ...(name !== undefined ? { name } : {}),
     ...(prompt !== undefined ? { prompt } : {}),
     ...(cadence !== undefined ? { cadence } : {}),
@@ -545,6 +546,23 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
     ...(expiresAt !== undefined ? { expiresAt } : {}),
     ...(delivery !== undefined ? { delivery } : {}),
   };
+}
+
+function parseActionConfig(options: AutomationFlags) {
+  if (
+    options.action === undefined &&
+    options.param === undefined &&
+    options.paramsJson === undefined &&
+    options.timeout === undefined
+  )
+    return undefined;
+  return ActionConfigSchema.parse({
+    ...(options.action !== undefined ? { action: options.action } : {}),
+    ...(options.param !== undefined || options.paramsJson !== undefined
+      ? { params: parseParams(options) }
+      : {}),
+    ...(options.timeout !== undefined ? { timeoutMs: parseDuration(options.timeout) } : {}),
+  });
 }
 
 function parseUpdateTriggers(options: ScheduleUpdateOptionsInput): AutomationTrigger[] | undefined {

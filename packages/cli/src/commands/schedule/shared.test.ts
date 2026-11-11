@@ -593,6 +593,20 @@ describe("compileEveryPresetToCron", () => {
 });
 
 describe("automation flags", () => {
+  test("sends only the requested action patch fields", () => {
+    expect(parseScheduleUpdateInput({ id: "one", timeout: "5s" })).toEqual({
+      id: "one",
+      actionConfig: { timeoutMs: 5000 },
+    });
+    expect(parseScheduleUpdateInput({ id: "one", param: ["text=hi"] })).toEqual({
+      id: "one",
+      actionConfig: { params: { text: "hi" } },
+    });
+    expect(parseScheduleUpdateInput({ id: "one", action: "other" })).toEqual({
+      id: "one",
+      actionConfig: { action: "other" },
+    });
+  });
   test("parses event filters and typed parameters", () => {
     expect(parseOn(["demo:ping,sender=alice,count=2,enabled=true"])).toEqual([
       {

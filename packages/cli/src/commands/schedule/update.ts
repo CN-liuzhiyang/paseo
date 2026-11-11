@@ -1,4 +1,3 @@
-import type { ScheduleDaemonClient, UpdateScheduleInput } from "./types.js";
 import type { Command } from "commander";
 import type { ListResult } from "../../output/index.js";
 import {
@@ -10,7 +9,6 @@ import {
   connectScheduleClient,
   requireAutomationsSupport,
   usesAutomationFlags,
-  parseActionTarget,
   type AutomationFlags,
   parseScheduleUpdateInput,
   requireNewAgentSchedule,
@@ -71,7 +69,6 @@ export async function runUpdateCommand(
       requireScheduleWorkspaceSupport(client);
     }
     if (input.newAgentConfig) await requireNewAgentSchedule(client, id);
-    await applyActionParams(client, id, options, input);
     const payload = await client.scheduleUpdate(input);
     if (payload.error || !payload.schedule) {
       throw new Error(payload.error ?? `Failed to update schedule: ${id}`);
@@ -85,30 +82,5 @@ export async function runUpdateCommand(
     throw toScheduleCommandError("SCHEDULE_UPDATE_FAILED", "update schedule", error);
   } finally {
     await client.close().catch(() => {});
-  }
-}
-
-async function applyActionParams(
-  client: ScheduleDaemonClient,
-  id: string,
-  options: ScheduleUpdateOptions,
-  input: UpdateScheduleInput,
-): Promise<void> {
-  if (
-    options.param !== undefined ||
-    options.paramsJson !== undefined ||
-    options.timeout !== undefined
-  ) {
-    const current = await client.scheduleInspect({ id });
-    if (!current.schedule || current.schedule.target.type !== "action")
-      throw new Error("Action parameters require an action target");
-    const previous = current.schedule.target;
-    input.actionTarget = {
-      ...previous,
-      ...parseActionTarget({ ...options, action: options.action ?? previous.action }),
-      ...(options.param === undefined && options.paramsJson === undefined
-        ? { params: previous.params }
-        : {}),
-    };
   }
 }

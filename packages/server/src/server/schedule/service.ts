@@ -1,5 +1,6 @@
 import { formatSystemNotificationPrompt } from "../agent/agent-messages/index.js";
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "pino";
@@ -624,17 +625,46 @@ export class ScheduleService {
 
   async update(input: UpdateScheduleInput): Promise<StoredSchedule> {
     if (input.triggers !== undefined) validateAutomationTriggers(input.triggers);
+    if (input.actionConfig === undefined) return this.updateRecord(input);
+    // Validate outside the store lock; retry if another action patch wins meanwhile.
+    for (;;) {
+      const previous = (await this.inspect(input.id)).target;
+      const target = this.mergeActionConfig(previous, input.actionConfig);
+      if (!isDeepStrictEqual(previous, target)) await this.resolveCreateTarget(target);
+      const updated = await this.updateRecord(input, { previous, target });
+      if (updated) return updated;
+    }
+  }
+
+  private mergeActionConfig(
+    target: ScheduleTarget,
+    patch: NonNullable<UpdateScheduleInput["actionConfig"]>,
+  ): ScheduleTarget {
+    if (target.type !== "action") throw new Error("Action parameters require an action target");
+    const merged = { ...target, ...patch };
+    if (merged.timeoutMs === null) delete merged.timeoutMs;
+    return ScheduleTargetSchema.parse(merged);
+  }
+
+  private async updateRecord(input: UpdateScheduleInput): Promise<StoredSchedule>;
+  private async updateRecord(
+    input: UpdateScheduleInput,
+    action: { previous: ScheduleTarget; target: ScheduleTarget },
+  ): Promise<StoredSchedule | null>;
+  private async updateRecord(
+    input: UpdateScheduleInput,
+    action?: { previous: ScheduleTarget; target: ScheduleTarget },
+  ): Promise<StoredSchedule | null> {
+    let retry = false;
     const next = await this.store.update(input.id, async (schedule) => {
+      if (action && !isDeepStrictEqual(schedule.target, action.previous)) {
+        retry = true;
+        return schedule;
+      }
       const now = this.now();
       let updated: StoredSchedule = schedule;
       if (input.triggers !== undefined) updated = { ...updated, triggers: input.triggers };
-      if (input.actionTarget !== undefined) {
-        if (updated.target.type !== "action")
-          throw new Error("Action parameters require an action target");
-        updated = { ...updated, target: await this.resolveCreateTarget(input.actionTarget) };
-      } else if (updated.target.type === "action") {
-        await this.resolveCreateTarget(updated.target);
-      }
+      if (action) updated = { ...updated, target: action.target };
 
       if (input.prompt !== undefined) {
         updated = { ...updated, prompt: normalizePrompt(input.prompt) };
@@ -682,7 +712,7 @@ export class ScheduleService {
 
       return { ...updated, updatedAt: now.toISOString() };
     });
-    return requireSchedule(next, input.id);
+    return retry ? null : requireSchedule(next, input.id);
   }
 
   async delete(id: string): Promise<void> {

@@ -375,6 +375,86 @@ describe("ScheduleService", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  test("updates unrelated action fields with the plugin offline and validates only changes", async () => {
+    const validateAction = vi.fn(async () => {});
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      validateAction,
+    });
+    const created = await service.create({
+      prompt: "echo",
+      cadence: { type: "none" },
+      target: { type: "action", action: "echo", params: {} },
+    });
+    validateAction.mockRejectedValue(new Error("plugin offline"));
+    await service.update({ id: created.id, name: "renamed" });
+    await service.update({ id: created.id, prompt: "updated" });
+    await service.update({
+      id: created.id,
+      triggers: [{ type: "event", source: "demo", event: "ping" }],
+    });
+    await service.update({ id: created.id, actionConfig: { action: "echo" } });
+    expect(validateAction).toHaveBeenCalledTimes(1);
+    expect(await service.inspect(created.id)).toMatchObject({
+      name: "renamed",
+      prompt: "updated",
+      triggers: [{ source: "demo" }],
+    });
+    await expect(
+      service.update({ id: created.id, actionConfig: { params: { changed: true } } }),
+    ).rejects.toThrow("plugin offline");
+  });
+
+  test("merges concurrent action patches without holding the store lock during validation", async () => {
+    let release = () => {};
+    let started = () => {};
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let block = true;
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      validateAction: async (_id, params) => {
+        if (params.text === "new" && block) {
+          block = false;
+          started();
+          await blocked;
+        }
+      },
+    });
+    const created = await service.create({
+      prompt: "echo",
+      cadence: { type: "none" },
+      target: { type: "action", action: "echo", params: { old: true } },
+    });
+    const changing = service.update({ id: created.id, actionConfig: { params: { text: "new" } } });
+    await ready;
+    await service.update({ id: created.id, name: "renamed", actionConfig: { timeoutMs: 5000 } });
+    release();
+    await changing;
+    expect((await service.inspect(created.id)).target).toEqual({
+      type: "action",
+      action: "echo",
+      params: { text: "new" },
+      timeoutMs: 5000,
+    });
+    expect(
+      (await service.update({ id: created.id, actionConfig: { action: "other", timeoutMs: null } }))
+        .target,
+    ).toEqual({ type: "action", action: "other", params: { text: "new" } });
+  });
+
   test("action event runs preserve the clock, deliver results and obey completion limits", async () => {
     const deliveries: string[] = [];
     const service = createScheduleService({
