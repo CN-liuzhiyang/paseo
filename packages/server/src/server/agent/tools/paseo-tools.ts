@@ -1051,7 +1051,10 @@ function createToolCatalog(
       }
       throw error;
     }
-    if (schedule.target.type !== type) {
+    const isAutomation =
+      type === "new-agent" &&
+      (schedule.target.type === "action" || (schedule.triggers?.length ?? 0) > 0);
+    if (schedule.target.type !== type && !isAutomation) {
       throw new PaseoToolInputError(
         type === "agent" ? `Heartbeat not found: ${id}` : `Schedule not found: ${id}`,
       );
@@ -2831,7 +2834,9 @@ function createToolCatalog(
       }
 
       const schedules = (await scheduleService.list())
-        .filter((schedule) => schedule.target.type === "new-agent")
+        .filter(
+          (schedule) => schedule.target.type !== "agent" || (schedule.triggers?.length ?? 0) > 0,
+        )
         .map((schedule) => toScheduleSummary(schedule));
       return {
         content: [],

@@ -7,6 +7,10 @@ import {
   ScheduleSummarySchema,
   StoredScheduleSchema,
   ScheduleTargetSchema,
+  AutomationTriggerSchema,
+  TriggerEventSchema,
+  ScheduleActionSchema,
+  ScheduleTriggerSourceSchema,
 } from "./types.js";
 
 // cwd may be omitted when workspaceId is given; the daemon takes the workspace's directory.
@@ -27,6 +31,7 @@ const ScheduleCreateTargetSchema = z.discriminatedUnion("type", [
     type: z.literal("new-agent"),
     config: ScheduleCreateNewAgentConfigSchema,
   }),
+  ScheduleTargetSchema.options[2],
 ]);
 
 export const ScheduleCreateRequestSchema = z.object({
@@ -40,6 +45,7 @@ export const ScheduleCreateRequestSchema = z.object({
   expiresAt: z.string().optional(),
   runOnCreate: z.boolean().optional(),
   delivery: ScheduleDeliverySchema.optional(),
+  triggers: z.array(AutomationTriggerSchema).optional(),
 });
 
 export const ScheduleListRequestSchema = z.object({
@@ -86,6 +92,7 @@ export const ScheduleRunOnceRequestSchema = z.object({
   type: z.literal("schedule/run-once"),
   requestId: z.string(),
   scheduleId: z.string(),
+  event: TriggerEventSchema.optional(),
 });
 
 const ScheduleUpdateNewAgentConfigSchema = z.object({
@@ -106,10 +113,37 @@ export const ScheduleUpdateRequestSchema = z.object({
   name: z.string().nullable().optional(),
   prompt: z.string().min(1).optional(),
   cadence: ScheduleCadenceSchema.optional(),
+  triggers: z.array(AutomationTriggerSchema).optional(),
+  actionTarget: ScheduleTargetSchema.options[2].optional(),
   newAgentConfig: ScheduleUpdateNewAgentConfigSchema.optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
   delivery: ScheduleDeliverySchema.nullable().optional(),
+});
+
+export const ScheduleActionsRequestSchema = z.object({
+  type: z.literal("schedule/actions"),
+  requestId: z.string(),
+});
+export const ScheduleTriggersRequestSchema = z.object({
+  type: z.literal("schedule/triggers"),
+  requestId: z.string(),
+});
+export const ScheduleActionsResponseSchema = z.object({
+  type: z.literal("schedule/actions/response"),
+  payload: z.object({
+    requestId: z.string(),
+    actions: z.array(ScheduleActionSchema),
+    error: z.string().nullable(),
+  }),
+});
+export const ScheduleTriggersResponseSchema = z.object({
+  type: z.literal("schedule/triggers/response"),
+  payload: z.object({
+    requestId: z.string(),
+    triggers: z.array(ScheduleTriggerSourceSchema),
+    error: z.string().nullable(),
+  }),
 });
 
 export const ScheduleCreateResponseSchema = z.object({

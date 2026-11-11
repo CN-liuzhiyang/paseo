@@ -375,6 +375,72 @@ describe("ScheduleService", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  test("action event runs preserve the clock, deliver results and obey completion limits", async () => {
+    const deliveries: string[] = [];
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      validateAction: async (_id, params) => {
+        if (params.text !== "hi") throw new Error("bad params");
+      },
+      runAction: async () => ({ agentId: null, output: "hi" }),
+      deliverToChannel: async (_channel, delivery) => {
+        deliveries.push(delivery.text);
+      },
+    });
+    const input = {
+      prompt: "echo",
+      cadence: { type: "cron" as const, expression: "0 9 * * *" },
+      target: { type: "action" as const, action: "echo", params: { text: "hi" } },
+      delivery: { channel: "demo", to: "test" },
+    };
+    await expect(
+      service.create({ ...input, target: { ...input.target, params: { text: 42 } } }),
+    ).rejects.toThrow("bad params");
+    const clock = await service.create(input);
+    await service.runForTrigger(clock.id, {
+      type: "event",
+      source: "demo",
+      event: "ping",
+      eventId: "one",
+      depth: 1,
+    });
+    expect((await service.inspect(clock.id)).nextRunAt).toBe(clock.nextRunAt);
+    expect(deliveries).toEqual(["hi"]);
+    const limited = await service.create({ ...input, cadence: { type: "none" }, maxRuns: 1 });
+    expect(limited.nextRunAt).toBeNull();
+    await service.runForTrigger(limited.id, {
+      type: "event",
+      source: "demo",
+      event: "ping",
+      eventId: "two",
+      depth: 1,
+    });
+    expect(await service.inspect(limited.id)).toMatchObject({
+      status: "completed",
+      nextRunAt: null,
+      runs: [
+        expect.objectContaining({
+          status: "succeeded",
+          trigger: { type: "event", source: "demo", event: "ping", eventId: "two", depth: 1 },
+        }),
+      ],
+    });
+    const expired = await service.create({
+      ...input,
+      cadence: { type: "none" },
+      expiresAt: new Date(now.getTime() - 1).toISOString(),
+    });
+    await service.runForTrigger(expired.id, { type: "manual" });
+    expect(await service.inspect(expired.id)).toMatchObject({ status: "completed", runs: [] });
+    await service.pause(clock.id, "rate-limit");
+    expect((await service.resume(clock.id)).pauseReason).toBeUndefined();
+  });
+
   test("ticks due schedules and records run history on disk", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
@@ -2589,7 +2655,7 @@ describe("ScheduleService", () => {
     expect(created.nextRunAt).toBe(now.toISOString());
   });
 
-  test("runOnce records a run without changing nextRunAt or completing the schedule", async () => {
+  test("runOnce records a run and completes the schedule when its run limit is reached", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
       logger: createTestLogger(),
@@ -2615,8 +2681,8 @@ describe("ScheduleService", () => {
     expect(created.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
 
     const after = await service.runOnce(created.id);
-    expect(after.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
-    expect(after.status).toBe("active");
+    expect(after.nextRunAt).toBeNull();
+    expect(after.status).toBe("completed");
     expect(after.runs).toHaveLength(1);
     expect(after.runs[0]).toMatchObject({
       status: "succeeded",

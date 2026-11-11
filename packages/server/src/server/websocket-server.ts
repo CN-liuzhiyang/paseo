@@ -2149,6 +2149,8 @@ export class VoiceAssistantWebSocketServer {
         commitFiles: true,
         // COMPAT(scheduleDelivery): fork-only until upstream lands its own shape.
         scheduleDelivery: true,
+        // COMPAT(automations): fork-only until upstream lands its own shape.
+        automations: true,
         // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.
         providerRemoval: true,
         hopliteProvider: this.providerSnapshotManager.supportsConfigRequiredProvider("hoplite"),

@@ -73,6 +73,8 @@ import {
   ScheduleRunOnceRequestSchema,
   ScheduleUpdateRequestSchema,
   ScheduleChannelsRequestSchema,
+  ScheduleActionsRequestSchema,
+  ScheduleTriggersRequestSchema,
   ScheduleCreateResponseSchema,
   ScheduleListResponseSchema,
   ScheduleInspectResponseSchema,
@@ -83,6 +85,8 @@ import {
   ScheduleRunOnceResponseSchema,
   ScheduleUpdateResponseSchema,
   ScheduleChannelsResponseSchema,
+  ScheduleActionsResponseSchema,
+  ScheduleTriggersResponseSchema,
 } from "./schedule/rpc-schemas.js";
 import {
   SpeechLocalModelsDeleteRequestSchema,
@@ -3510,6 +3514,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleRunOnceRequestSchema,
   ScheduleUpdateRequestSchema,
   ScheduleChannelsRequestSchema,
+  ScheduleActionsRequestSchema,
+  ScheduleTriggersRequestSchema,
   LoopRunRequestSchema,
   LoopListRequestSchema,
   LoopInspectRequestSchema,
@@ -3850,6 +3856,9 @@ export const ServerInfoStatusPayloadSchema = z
         // COMPAT(scheduleDelivery): fork-only until upstream lands its own shape. Gates the
         // schedule delivery field and schedule/channels.
         scheduleDelivery: z.boolean().optional(),
+        // COMPAT(automations): fork-only until upstream lands its own shape.
+        automations: z.boolean().optional(),
+        automationSources: z.boolean().optional(),
         // COMPAT(providerRemoval): added in v0.1.105, drop the gate when floor >= v0.1.105.
         providerRemoval: z.boolean().optional(),
         // COMPAT(hopliteProvider): added after v0.11.2, remove after 2027-04-15 once host floor includes the bundled adapter.
@@ -7299,6 +7308,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   ScheduleRunOnceResponseSchema,
   ScheduleUpdateResponseSchema,
   ScheduleChannelsResponseSchema,
+  ScheduleActionsResponseSchema,
+  ScheduleTriggersResponseSchema,
   LoopRunResponseSchema,
   LoopListResponseSchema,
   LoopInspectResponseSchema,

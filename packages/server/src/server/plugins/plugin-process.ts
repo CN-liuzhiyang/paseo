@@ -1,4 +1,11 @@
 import { PluginAgentTools } from "./agent-tools.js";
+import { PluginAutomations } from "./plugin-automations.js";
+import {
+  EmitResultSchema,
+  TriggerEventSchema,
+  type TriggerEvent,
+  type EmitResult,
+} from "@getpaseo/protocol/schedule/types";
 import { PluginHookHandlers } from "./lifecycle/index.js";
 import { evaluateBundle } from "./bundle-evaluator.js";
 import {
@@ -97,6 +104,11 @@ export function createPluginWorker(options: {
   const usageSources = new Map<string, UsageSourceRegistration>();
   const channels = new Map<string, ChannelRegistration>();
   let readySent = false;
+  const automations = new PluginAutomations(() => {
+    if (!readySent) return;
+    send({ type: "actions.changed", actions: automations.actionMetadata() });
+    send({ type: "triggers.changed", triggerSources: automations.sourceMetadata() });
+  });
   // Calls this plugin made to the host, waiting on a `channel.response`.
   const pendingHostCalls = new Map<
     string,
@@ -222,7 +234,7 @@ export function createPluginWorker(options: {
   function callHost(
     message: Extract<
       PluginProcessMessage,
-      { type: "channel.deliver.request" | "channel.list.request" }
+      { type: "channel.deliver.request" | "channel.list.request" | "trigger.emit.request" }
     >,
   ): Promise<unknown> {
     if (stopping) return Promise.reject(new Error("Plugin is stopping"));
@@ -246,6 +258,29 @@ export function createPluginWorker(options: {
   async function listChannels(): Promise<ScheduleChannel[]> {
     const output = await callHost({ type: "channel.list.request", requestId: randomUUID() });
     return output as ScheduleChannel[];
+  }
+
+  async function emit(sourceId: string, event: TriggerEvent): Promise<EmitResult> {
+    const checked = TriggerEventSchema.parse(event);
+    if (
+      !automations
+        .sourceMetadata()
+        .some(
+          (source) =>
+            source.id === sourceId && source.events.some((entry) => entry.id === checked.event),
+        )
+    )
+      throw new Error(`Unregistered event: ${sourceId}:${checked.event}`);
+    if (Buffer.byteLength(JSON.stringify(checked.data ?? {})) > 16_384)
+      throw new Error("Event data exceeds 16KB");
+    return EmitResultSchema.parse(
+      await callHost({
+        type: "trigger.emit.request",
+        requestId: randomUUID(),
+        sourceId,
+        event: checked,
+      }),
+    );
   }
 
   function requireChannel(channelId: string): { channel: ChannelRegistration; api: PaseoApi } {
@@ -403,6 +438,15 @@ export function createPluginWorker(options: {
       registerUsageSource,
       registerSettings,
       registerChannel,
+      registerAction: (action) => {
+        if (stopping) throw new Error("Plugin is stopping");
+        automations.registerAction(action);
+      },
+      registerTriggerSource: (source) => {
+        if (stopping) throw new Error("Plugin is stopping");
+        automations.registerSource(source);
+      },
+      emit,
       deliver,
       listChannels,
       addHook: hooks.addHook,
@@ -434,6 +478,8 @@ export function createPluginWorker(options: {
         .map(providerMetadata),
       usageSources: usageSourceMetadata,
       channels: channelMetadata(),
+      actions: automations.actionMetadata(),
+      triggerSources: automations.sourceMetadata(),
     });
     readySent = true;
   }
@@ -441,6 +487,7 @@ export function createPluginWorker(options: {
   async function shutdown(): Promise<void> {
     if (stopping) return;
     stopping = true;
+    automations.close();
     for (const call of pendingHostCalls.values()) call.reject(new Error("Plugin is stopping"));
     pendingHostCalls.clear();
     const releaseApi = paseo
@@ -502,6 +549,7 @@ export function createPluginWorker(options: {
   }
 
   function rejectWhileStopping(message: PluginProcessRequest): void {
+    if (handleAutomationMessage(message)) return;
     if (
       message.type === "provider.status" ||
       message.type === "provider.catalog_key" ||
@@ -565,18 +613,51 @@ export function createPluginWorker(options: {
     return false;
   }
 
-  // One router for the two host-driven families keeps handleMessage under the complexity limit.
+  // Keep host-driven request dispatch out of the process lifecycle router.
   function handleToolOrChannelMessage(
     message: PluginProcessRequest,
   ): message is
     | Extract<PluginProcessRequest, { type: "tool.call" | "tool.cancel" | "tools.detach" }>
     | ChannelRequest
-    | ChannelResponse {
+    | ChannelResponse
+    | Extract<PluginProcessRequest, { type: "action.cancel" | "action.run" | "action.validate" }> {
+    if (handleAutomationMessage(message)) return true;
     if (isChannelMessage(message)) {
       handleChannelMessage(message);
       return true;
     }
     return handleToolMessage(message);
+  }
+
+  function handleAutomationMessage(
+    message: PluginProcessRequest,
+  ): message is Extract<
+    PluginProcessRequest,
+    { type: "action.cancel" | "action.run" | "action.validate" }
+  > {
+    if (message.type === "action.cancel") {
+      automations.cancel(message.requestId);
+      return true;
+    }
+    if (message.type === "action.run" || message.type === "action.validate") {
+      const execute = async () => {
+        if (stopping) throw new Error("Plugin is stopping");
+        if (message.type === "action.validate") {
+          await automations.validate(message.actionId, message.params);
+          return null;
+        }
+        if (!paseo) throw new Error("Plugin Paseo API is unavailable");
+        return automations.run(message.requestId, message.actionId, message.input, paseo);
+      };
+      void execute().then(
+        (output) => send({ type: "result", requestId: message.requestId, output }),
+        (error) =>
+          send({ type: "error", requestId: message.requestId, error: describeError(error) }),
+      );
+      return true;
+    }
+
+    return false;
   }
 
   function handleMessage(rawMessage: unknown): void {

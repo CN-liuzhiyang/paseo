@@ -52,6 +52,7 @@ function normalizeOptionalScheduleName(name: string | null): string | null {
 }
 
 function targetIdentity(target: ScheduleTarget): unknown {
+  if (target.type === "action") return target;
   if (target.type === "agent") {
     return {
       type: target.type,

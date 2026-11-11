@@ -7,6 +7,14 @@ export type {
 } from "./usage.js";
 export type {
   ChannelDelivery,
+  ActionRegistration,
+  ActionInput,
+  ActionContext,
+  ActionResult,
+  TriggerSourceRegistration,
+  TriggerEvent,
+  EmitResult,
+  RunTrigger,
   ChannelDeliveryPluginSource,
   ChannelDeliveryScheduleSource,
   ChannelDestination,

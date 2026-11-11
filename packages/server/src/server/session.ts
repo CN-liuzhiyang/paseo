@@ -1004,6 +1004,7 @@ export class Session {
       logger: this.sessionLogger,
     });
     this.scheduleSession = new ScheduleSession({
+      supportsAutomations: () => this.supports(CLIENT_CAPS.automations),
       host: { emit: (msg) => this.emit(msg) },
       scheduleService,
       logger: this.sessionLogger,
@@ -3240,6 +3241,10 @@ export class Session {
         return this.scheduleSession.handleScheduleUpdateRequest(msg);
       case "schedule/channels":
         return this.scheduleSession.handleScheduleChannelsRequest(msg);
+      case "schedule/actions":
+        return this.scheduleSession.handleScheduleActionsRequest(msg);
+      case "schedule/triggers":
+        return this.scheduleSession.handleScheduleTriggersRequest(msg);
       default:
         return undefined;
     }

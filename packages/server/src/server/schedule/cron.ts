@@ -85,7 +85,13 @@ export function validateScheduleCadence(cadence: ScheduleCadence): void {
   }
 }
 
-export function computeNextRunAt(cadence: ScheduleCadence, after: Date): Date {
+export function computeNextRunAt(
+  cadence: Exclude<ScheduleCadence, { type: "none" }>,
+  after: Date,
+): Date;
+export function computeNextRunAt(cadence: ScheduleCadence, after: Date): Date | null;
+export function computeNextRunAt(cadence: ScheduleCadence, after: Date): Date | null {
+  if (cadence.type === "none") return null;
   if (cadence.type === "every") {
     // COMPAT(scheduleEveryMs): execute legacy persisted rolling intervals until the
     // compatibility floor reaches v0.2.0. Added in v0.2.0; remove after 2027-01-17.

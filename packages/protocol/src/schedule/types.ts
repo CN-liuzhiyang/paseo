@@ -14,6 +14,7 @@ export const ScheduleCadenceSchema = z.discriminatedUnion("type", [
     expression: z.string().trim().min(1),
     timezone: z.string().trim().min(1).optional(),
   }),
+  z.object({ type: z.literal("none") }),
 ]);
 export type ScheduleCadence = z.infer<typeof ScheduleCadenceSchema>;
 
@@ -42,8 +43,90 @@ export const ScheduleTargetSchema = z.discriminatedUnion("type", [
       mcpServers: z.record(z.string(), z.unknown()).optional(),
     }),
   }),
+  z.object({
+    type: z.literal("action"),
+    action: z.string().trim().min(1),
+    params: z.record(z.string(), z.unknown()),
+    timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+  }),
 ]);
 export type ScheduleTarget = z.infer<typeof ScheduleTargetSchema>;
+
+export const EventTriggerSchema = z.object({
+  type: z.literal("event"),
+  source: z.string().regex(/^[a-z][a-z0-9._-]*$/),
+  event: z.string().regex(/^[a-z][a-z0-9._-]*$/),
+  match: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  maxAgeMs: z.number().int().positive().optional(),
+});
+export const AutomationTriggerSchema = z.union([
+  EventTriggerSchema,
+  z.object({ type: z.string() }).passthrough(),
+]);
+export type AutomationTrigger = z.infer<typeof AutomationTriggerSchema>;
+export const TriggerEventSchema = z.object({
+  event: z.string().regex(/^[a-z][a-z0-9._-]*$/),
+  id: z.string().min(1).max(1024),
+  occurredAt: z.iso.datetime({ offset: true }).optional(),
+  subject: z.string().max(4096).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  causedBy: z.string().optional(),
+});
+export type TriggerEvent = z.infer<typeof TriggerEventSchema>;
+export const RunTriggerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("clock") }),
+  z.object({ type: z.literal("manual"), event: TriggerEventSchema.optional() }),
+  z.object({
+    type: z.literal("event"),
+    source: z.string(),
+    event: z.string(),
+    eventId: z.string(),
+    subject: z.string().optional(),
+    depth: z.number().int().nonnegative(),
+    coalesced: z.number().int().nonnegative().optional(),
+    data: z.record(z.string(), z.unknown()).optional(),
+  }),
+]);
+export type RunTrigger = z.infer<typeof RunTriggerSchema>;
+export const TriggerSourceRegistrationSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9._-]*$/),
+  label: z.string().optional(),
+  events: z.array(
+    z.object({
+      id: z.string().regex(/^[a-z][a-z0-9._-]*$/),
+      label: z.string().optional(),
+      description: z.string().optional(),
+      fields: z.array(z.string()).optional(),
+    }),
+  ),
+});
+export type TriggerSourceRegistration = z.infer<typeof TriggerSourceRegistrationSchema>;
+export const ScheduleTriggerSourceSchema = TriggerSourceRegistrationSchema.extend({
+  pluginId: z.string(),
+});
+export const ScheduleActionSchema = z.object({
+  id: z.string(),
+  pluginId: z.string(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+  params: z.record(z.string(), z.unknown()),
+  defaultTimeoutMs: z.number().int().positive().max(3_600_000).optional(),
+});
+export type ScheduleAction = z.infer<typeof ScheduleActionSchema>;
+export type ScheduleTriggerSource = z.infer<typeof ScheduleTriggerSourceSchema>;
+export const EmitResultSchema = z.object({
+  status: z.enum(["accepted", "duplicate", "stale"]),
+  started: z.array(z.string()),
+  deferred: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+});
+export type EmitResult = z.infer<typeof EmitResultSchema>;
+export const ProjectSourceRefSchema = z.object({
+  kind: z.literal("project"),
+  projectKey: z.string(),
+  automationId: z.string(),
+  fingerprint: z.string(),
+});
 
 // Where a schedule sends each run's result. `channel` is an outbound channel id registered by a
 // plugin; `to` is an address only that channel interprets.
@@ -97,6 +180,7 @@ export const ScheduleRunSchema = z.object({
   output: z.string().nullable(),
   error: z.string().nullable(),
   delivery: ScheduleRunDeliverySchema.optional(),
+  trigger: RunTriggerSchema.optional(),
 });
 export type ScheduleRun = z.infer<typeof ScheduleRunSchema>;
 
@@ -116,6 +200,9 @@ export const StoredScheduleSchema = z.object({
   maxRuns: z.number().int().positive().nullable(),
   delivery: ScheduleDeliverySchema.optional(),
   lastDelivery: ScheduleLastDeliverySchema.optional(),
+  triggers: z.array(AutomationTriggerSchema).optional(),
+  pauseReason: z.string().optional(),
+  source: ProjectSourceRefSchema.optional(),
   runs: z.array(ScheduleRunSchema),
 });
 export type StoredSchedule = z.infer<typeof StoredScheduleSchema>;
@@ -130,6 +217,7 @@ export type ScheduleNewAgentConfig = Extract<ScheduleTarget, { type: "new-agent"
 // A new-agent create request may omit cwd when it names a workspace.
 export type CreateScheduleTarget =
   | Extract<ScheduleTarget, { type: "agent" }>
+  | Extract<ScheduleTarget, { type: "action" }>
   | {
       type: "new-agent";
       config: Omit<ScheduleNewAgentConfig, "cwd"> & { cwd?: string };
@@ -144,6 +232,7 @@ export interface CreateScheduleInput {
   expiresAt?: string | null;
   runOnCreate?: boolean | null;
   delivery?: ScheduleDelivery | null;
+  triggers?: AutomationTrigger[];
 }
 
 export interface UpdateScheduleNewAgentConfig {
@@ -163,6 +252,8 @@ export interface UpdateScheduleInput {
   name?: string | null;
   prompt?: string;
   cadence?: ScheduleCadence;
+  triggers?: AutomationTrigger[];
+  actionTarget?: Extract<ScheduleTarget, { type: "action" }>;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;

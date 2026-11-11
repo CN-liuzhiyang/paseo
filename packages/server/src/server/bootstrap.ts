@@ -162,6 +162,8 @@ import {
 } from "./workspace-registry.js";
 import { CheckoutDiffManager } from "./checkout-diff-manager.js";
 import { ScheduleService } from "./schedule/service.js";
+import { runAutomationAction } from "./schedule/automation-actions.js";
+import { AutomationTriggers } from "./schedule/automation-triggers.js";
 import { DaemonConfigStore, type MutableDaemonConfig } from "./daemon-config-store.js";
 import { createOrchestrationSkills } from "./orchestration-skills/index.js";
 import {
@@ -1446,6 +1448,10 @@ export async function createPaseoDaemon(
     );
   };
   const scheduleService = new ScheduleService({
+    runAction: (schedule, runId) => runAutomationAction(pluginRuntime, schedule, runId),
+    validateAction: (id, params) => pluginRuntime.validateAction(id, params),
+    listActions: () => pluginRuntime.listActions(),
+    listTriggerSources: () => pluginRuntime.listTriggerSources(),
     paseoHome: config.paseoHome,
     logger,
     agentManager,
@@ -1462,6 +1468,17 @@ export async function createPaseoDaemon(
     },
   });
   await scheduleService.start();
+  const automationTriggers = new AutomationTriggers({
+    paseoHome: config.paseoHome,
+    service: scheduleService,
+    logger,
+  });
+  scheduleService.subscribeRunFinished((id) => {
+    void automationTriggers.drain(id);
+  });
+  pluginRuntime.bindTriggerHandler((pluginId, sourceId, event) =>
+    automationTriggers.emit(pluginId, sourceId, event),
+  );
 
   agentManager.setAgentArchivedCallback(async (agentId) => {
     try {
@@ -2026,6 +2043,7 @@ export async function createPaseoDaemon(
       logger.error({ err: error }, "Terminal shutdown failed");
     }
     await speechService.stop();
+    automationTriggers.close();
     await scheduleService.stop().catch(() => undefined);
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {

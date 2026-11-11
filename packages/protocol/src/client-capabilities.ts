@@ -1,4 +1,6 @@
 export const CLIENT_CAPS = {
+  // COMPAT(automations): fork-only until upstream lands its own shape.
+  automations: "automations",
   terminalChunkedReplay: "terminal_chunked_replay",
   binaryChunkingV1: "binary_chunking_v1",
   helloRejection: "hello_rejection",
