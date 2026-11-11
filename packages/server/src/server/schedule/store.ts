@@ -82,6 +82,7 @@ function matchesNameAndTarget(
 ): boolean {
   const scheduleName = normalizeOptionalScheduleName(schedule.name);
   return (
+    !schedule.source &&
     schedule.status !== "completed" &&
     scheduleName !== null &&
     scheduleName === normalizeScheduleName(name) &&

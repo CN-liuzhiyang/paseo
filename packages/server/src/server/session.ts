@@ -1,3 +1,4 @@
+import type { SourceCaller } from "./schedule/automation-sources.js";
 import { type WorkspaceRuntimeStore } from "./workspace-runtime-store/index.js";
 import type { AgentMessageDelivery } from "./agent/agent-messages/index.js";
 import { AgentDirectory } from "./agent/directory.js";
@@ -442,6 +443,7 @@ const nodeSessionFileSystem: SessionFileSystem = {
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
 export interface SessionOptions {
+  sourceCaller?: (source: object | undefined) => SourceCaller;
   connectedHosts?: ConnectedHosts;
   sourceId?: string;
   routed?: boolean;
@@ -817,6 +819,7 @@ export class Session {
   private readonly voiceSessions: VoiceSessions;
   private readonly checkoutSession: CheckoutSession;
   private readonly scheduleSession: ScheduleSession;
+  private readonly sourceCaller: (source: object | undefined) => SourceCaller;
   private readonly providerCatalogSession: ProviderCatalogSession;
   private readonly usageSession: UsageSession;
   private readonly speechModelsSession: SpeechModelsSession;
@@ -1003,6 +1006,7 @@ export class Session {
       onBranchChanged,
       logger: this.sessionLogger,
     });
+    this.sourceCaller = options.sourceCaller ?? (() => ({}));
     this.scheduleSession = new ScheduleSession({
       supportsAutomations: () => this.supports(CLIENT_CAPS.automations),
       host: { emit: (msg) => this.emit(msg) },
@@ -2246,6 +2250,10 @@ export class Session {
         return;
       }
       try {
+        if (msg.type.startsWith("schedule.sources.")) {
+          await this.scheduleSession.handleSourceRequest(msg, this.sourceCaller(source));
+          return;
+        }
         await this.dispatchInboundMessage(msg, source);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));

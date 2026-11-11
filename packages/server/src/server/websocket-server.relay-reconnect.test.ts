@@ -496,6 +496,31 @@ function holdSessionCleanup(session: (typeof sessionMock.instances)[number]): {
 }
 
 describe("relay external socket reconnect behavior", () => {
+  test("source approval follows physical sockets across reconnects and plugin sessions", async () => {
+    const server = createServer();
+    try {
+      const direct = new MockSocket();
+      await attachDirectAndHello({ server, socket: direct, clientId: "approval" });
+      const caller = sessionMock.instances[0].args.sourceCaller as (socket: object) => {
+        transport?: string;
+        plugin?: boolean;
+      };
+      expect(caller(direct)).toEqual({ transport: "direct", plugin: false });
+      const relay = new MockSocket();
+      await attachRelayAndHello({ server, socket: relay, clientId: "approval" });
+      expect(sessionMock.instances).toHaveLength(1);
+      expect(caller(relay)).toEqual({ transport: "relay", plugin: false });
+      const plugin = new MockSocket();
+      await server.attachPluginSocket("approval-plugin", plugin);
+      plugin.emit("message", JSON.stringify(createHelloMessage("plugin:approval-plugin")));
+      await vi.waitFor(() => expect(sessionMock.instances).toHaveLength(2));
+      const pluginCaller = sessionMock.instances[1].args.sourceCaller as typeof caller;
+      expect(pluginCaller(plugin).plugin).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
   test("closes only a hello socket when post-admission setup throws", async () => {
     const server = createServer();
     class ThrowOnceSocket extends MockSocket {

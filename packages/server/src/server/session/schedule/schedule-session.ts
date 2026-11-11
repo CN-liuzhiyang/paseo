@@ -1,3 +1,4 @@
+import type { SourceCaller } from "../../schedule/automation-sources.js";
 import { projectAutomation, projectAutomationRuns } from "../../schedule/automation-projection.js";
 import type pino from "pino";
 import type { SessionInboundMessage, SessionOutboundMessage } from "../../messages.js";
@@ -25,6 +26,34 @@ export class ScheduleSession {
     this.supportsAutomations = options.supportsAutomations ?? (() => false);
     this.scheduleService = options.scheduleService;
     this.logger = options.logger;
+  }
+
+  async handleSourceRequest(request: SessionInboundMessage, caller: SourceCaller): Promise<void> {
+    type SourceRequest = Extract<
+      SessionInboundMessage,
+      { type: `schedule.sources.${string}.request` }
+    >;
+    type SourceResponse = Extract<
+      SessionOutboundMessage,
+      { type: `schedule.sources.${string}.response` }
+    >;
+    // Session dispatch has already selected the schema-validated source namespace.
+    const input = request as SourceRequest;
+    const type = input.type.replace(/\.request$/, ".response") as SourceResponse["type"];
+    try {
+      if (!this.scheduleService.sources) throw new Error("Automation sources unavailable");
+      const sources = await this.scheduleService.sources.request(
+        input.type.split(".")[2],
+        input,
+        caller,
+      );
+      this.host.emit({ type, payload: { requestId: input.requestId, sources, error: null } });
+    } catch (error) {
+      this.host.emit({
+        type,
+        payload: { requestId: input.requestId, sources: [], error: String(error) },
+      });
+    }
   }
 
   private project(schedule: Awaited<ReturnType<ScheduleService["inspect"]>>) {

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  AutomationSourceSchema,
+  AutomationSourceOverridesSchema,
   ScheduleCadenceSchema,
   ScheduleChannelSchema,
   ScheduleDeliverySchema,
@@ -236,4 +238,72 @@ export const ScheduleUpdateResponseSchema = z.object({
     schedule: StoredScheduleSchema.nullable(),
     error: z.string().nullable(),
   }),
+});
+
+const sourceRequest = {
+  requestId: z.string(),
+  id: z.string().optional(),
+  fingerprint: z.string().optional(),
+  overrides: AutomationSourceOverridesSchema.optional(),
+};
+const sourceResponse = z.object({
+  requestId: z.string(),
+  sources: z.array(AutomationSourceSchema),
+  error: z.string().nullable(),
+});
+export const SourceListRequestSchema = z.object({
+  type: z.literal("schedule.sources.list.request"),
+  ...sourceRequest,
+});
+export const SourceListResponseSchema = z.object({
+  type: z.literal("schedule.sources.list.response"),
+  payload: sourceResponse,
+});
+export const SourceScanRequestSchema = z.object({
+  type: z.literal("schedule.sources.scan.request"),
+  ...sourceRequest,
+});
+export const SourceScanResponseSchema = z.object({
+  type: z.literal("schedule.sources.scan.response"),
+  payload: sourceResponse,
+});
+export const SourceShowRequestSchema = z.object({
+  type: z.literal("schedule.sources.show.request"),
+  ...sourceRequest,
+});
+export const SourceShowResponseSchema = z.object({
+  type: z.literal("schedule.sources.show.response"),
+  payload: sourceResponse,
+});
+export const SourceEnableRequestSchema = z.object({
+  type: z.literal("schedule.sources.enable.request"),
+  ...sourceRequest,
+});
+export const SourceEnableResponseSchema = z.object({
+  type: z.literal("schedule.sources.enable.response"),
+  payload: sourceResponse,
+});
+export const SourceDisableRequestSchema = z.object({
+  type: z.literal("schedule.sources.disable.request"),
+  ...sourceRequest,
+});
+export const SourceDisableResponseSchema = z.object({
+  type: z.literal("schedule.sources.disable.response"),
+  payload: sourceResponse,
+});
+export const SourceSetRequestSchema = z.object({
+  type: z.literal("schedule.sources.set.request"),
+  ...sourceRequest,
+});
+export const SourceSetResponseSchema = z.object({
+  type: z.literal("schedule.sources.set.response"),
+  payload: sourceResponse,
+});
+export const SourceForgetRequestSchema = z.object({
+  type: z.literal("schedule.sources.forget.request"),
+  ...sourceRequest,
+});
+export const SourceForgetResponseSchema = z.object({
+  type: z.literal("schedule.sources.forget.response"),
+  payload: sourceResponse,
 });

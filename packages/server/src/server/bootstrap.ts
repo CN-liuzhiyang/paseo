@@ -1,3 +1,4 @@
+import { AutomationSources } from "./schedule/automation-sources.js";
 import { createRestartRecovery } from "./agent/restart-recovery/index.js";
 import { sendPromptToAgent } from "./agent/agent-prompt.js";
 import { createIdleRuntimeCleanup } from "./agent/idle-runtime-cleanup/index.js";
@@ -1447,8 +1448,14 @@ export async function createPaseoDaemon(
       },
     );
   };
-  const scheduleService = new ScheduleService({
-    runAction: (schedule, runId) => runAutomationAction(pluginRuntime, schedule, runId),
+  const scheduleService: ScheduleService = new ScheduleService({
+    runAction: (schedule, runId) =>
+      runAutomationAction(
+        pluginRuntime,
+        schedule,
+        runId,
+        scheduleService.sources?.cwd(schedule) ?? null,
+      ),
     validateAction: (id, params) => pluginRuntime.validateAction(id, params),
     listActions: () => pluginRuntime.listActions(),
     listTriggerSources: () => pluginRuntime.listTriggerSources(),
@@ -1467,6 +1474,14 @@ export async function createPaseoDaemon(
       await archiveAgentCommand({ agentManager, agentStorage, logger }, agentId);
     },
   });
+  scheduleService.sources = new AutomationSources({
+    paseoHome: config.paseoHome,
+    service: scheduleService,
+    projects: projectRegistry,
+    workspaces: workspaceRegistry,
+    onError: (error) => logger.error({ err: error }, "Automation source scan failed"),
+  });
+  await scheduleService.sources.start();
   await scheduleService.start();
   const automationTriggers = new AutomationTriggers({
     paseoHome: config.paseoHome,
@@ -2044,6 +2059,7 @@ export async function createPaseoDaemon(
     }
     await speechService.stop();
     automationTriggers.close();
+    await scheduleService.sources?.stop();
     await scheduleService.stop().catch(() => undefined);
     await relayRuntime?.stop().catch(() => undefined);
     if (wsServer) {

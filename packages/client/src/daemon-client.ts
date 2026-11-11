@@ -6688,6 +6688,53 @@ export class DaemonClient {
     });
   }
 
+  async scheduleSources(
+    operation: "list" | "scan" | "show" | "enable" | "disable" | "set" | "forget",
+    options: {
+      id?: string;
+      fingerprint?: string;
+      overrides?: import("@getpaseo/protocol/schedule/types").AutomationSourceOverrides;
+    } = {},
+  ) {
+    switch (operation) {
+      case "list":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.list.request", ...options },
+          responseType: "schedule.sources.list.response",
+        });
+      case "scan":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.scan.request", ...options },
+          responseType: "schedule.sources.scan.response",
+        });
+      case "show":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.show.request", ...options },
+          responseType: "schedule.sources.show.response",
+        });
+      case "enable":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.enable.request", ...options },
+          responseType: "schedule.sources.enable.response",
+        });
+      case "disable":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.disable.request", ...options },
+          responseType: "schedule.sources.disable.response",
+        });
+      case "set":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.set.request", ...options },
+          responseType: "schedule.sources.set.response",
+        });
+      case "forget":
+        return this.sendCorrelatedSessionRequest({
+          message: { type: "schedule.sources.forget.request", ...options },
+          responseType: "schedule.sources.forget.response",
+        });
+    }
+  }
+
   async scheduleActions(requestId?: string) {
     return this.sendCorrelatedSessionRequest({
       requestId,

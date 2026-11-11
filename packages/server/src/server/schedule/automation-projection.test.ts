@@ -207,8 +207,11 @@ test("ScheduleSession projects every response for a session without automations 
       scheduleId: id,
     });
     expect(messages).toHaveLength(8);
+    expect(
+      messages.filter((m) => m.type === "rpc_error").map((m) => m.payload.requestType),
+    ).toEqual(["schedule/update", "schedule/resume", "schedule/run-once"]);
     for (const message of messages) {
-      expect(message.type).not.toBe("rpc_error");
+      if (message.type === "rpc_error") continue;
       if (!("payload" in message)) throw new Error("missing payload");
       const payload = message.payload;
       if ("schedule" in payload && payload.schedule) {

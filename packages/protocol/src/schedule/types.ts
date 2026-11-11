@@ -273,3 +273,26 @@ export interface ScheduleExecutionResult {
   agentId: string | null;
   output: string | null;
 }
+
+export const AutomationSourceOverridesSchema = z.object({
+  delivery: ScheduleDeliverySchema.optional(),
+  provider: z.string().optional(),
+  model: z.string().optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
+});
+export type AutomationSourceOverrides = z.infer<typeof AutomationSourceOverridesSchema>;
+export const AutomationSourceSchema = z.object({
+  id: z.string(),
+  projectKey: z.string(),
+  automationId: z.string(),
+  checkout: z.string(),
+  state: z.enum(["pending", "enabled", "disabled", "orphaned"]),
+  seenFingerprint: z.string(),
+  approvedFingerprint: z.string().optional(),
+  scheduleId: z.string().optional(),
+  overrides: AutomationSourceOverridesSchema.optional(),
+  definition: z.record(z.string(), z.unknown()),
+  approvedDefinition: z.record(z.string(), z.unknown()).optional(),
+  error: z.string().optional(),
+});
+export type AutomationSource = z.infer<typeof AutomationSourceSchema>;

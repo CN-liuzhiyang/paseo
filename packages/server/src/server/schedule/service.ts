@@ -1,3 +1,4 @@
+import type { AutomationSources } from "./automation-sources.js";
 import { formatSystemNotificationPrompt } from "../agent/agent-messages/index.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
@@ -374,6 +375,41 @@ export interface ScheduleServiceOptions {
 }
 
 export class ScheduleService {
+  sources?: AutomationSources;
+  async applySource(
+    id: string | undefined,
+    input: CreateScheduleInput,
+    source: NonNullable<StoredSchedule["source"]>,
+  ): Promise<StoredSchedule> {
+    validateAutomationTriggers(input.triggers ?? []);
+    validateScheduleCadence(input.cadence);
+    const fields = {
+      name: trimOptionalName(input.name),
+      prompt: normalizePrompt(input.prompt),
+      target: await this.resolveCreateTarget(input.target),
+    };
+    const record = { ...this.buildScheduleRecord(input, fields), source };
+    if (!id) {
+      id = (await this.list()).find(
+        (s) =>
+          s.source?.projectKey === source.projectKey &&
+          s.source.automationId === source.automationId,
+      )?.id;
+    }
+    if (!id) return this.store.create(record);
+    return requireSchedule(
+      await this.store.update(id, (current) => ({
+        ...current,
+        ...record,
+        runs: current.runs,
+        createdAt: current.createdAt,
+        lastRunAt: current.lastRunAt,
+        lastDelivery: current.lastDelivery,
+      })),
+      id,
+    );
+  }
+
   private readonly automationOptions: Pick<
     ScheduleServiceOptions,
     "runAction" | "validateAction" | "listActions" | "listTriggerSources"
@@ -584,9 +620,10 @@ export class ScheduleService {
   async pause(id: string, reason?: string): Promise<StoredSchedule> {
     const paused = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
+        if (reason?.startsWith("source-")) return schedule;
         throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
       }
-      if (schedule.status === "paused") {
+      if (schedule.status === "paused" && (!reason || schedule.pauseReason === reason)) {
         return schedule;
       }
       const now = this.now();
@@ -603,6 +640,8 @@ export class ScheduleService {
   }
 
   async resume(id: string): Promise<StoredSchedule> {
+    if ((await this.inspect(id)).source)
+      throw new Error("Use source enable --fingerprint to resume a project automation");
     const resumed = await this.store.update(id, (schedule) => {
       if (schedule.status === "completed") {
         throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
@@ -627,6 +666,7 @@ export class ScheduleService {
   }
 
   async update(input: UpdateScheduleInput): Promise<StoredSchedule> {
+    if ((await this.inspect(input.id)).source) throw new Error("Edit paseo.json or use source set");
     if (input.triggers !== undefined) validateAutomationTriggers(input.triggers);
     if (input.actionConfig === undefined) return this.updateRecord(input);
     // Validate outside the store lock; retry if another action patch wins meanwhile.
@@ -780,6 +820,8 @@ export class ScheduleService {
         throw new Error("Event data exceeds 16KB");
     }
     const schedule = await this.inspect(id);
+    if (schedule.source && schedule.status !== "active")
+      throw new Error("Use source enable --fingerprint before running this automation");
     if (schedule.status === "completed") {
       throw new ScheduleStateConflictError(`Schedule ${id} is already completed`);
     }
@@ -1270,10 +1312,7 @@ export class ScheduleService {
     let agentId: string | null = null;
     try {
       if (!boundWorkspace) {
-        ownedWorkspace = await this.createScheduleRunWorkspace(
-          config,
-          promptForRun(schedule, runId),
-        );
+        ownedWorkspace = await this.createScheduleRunWorkspace(config, schedule.prompt);
         await this.recordRunWorkspace({
           scheduleId: schedule.id,
           runId,

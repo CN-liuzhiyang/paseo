@@ -16,6 +16,7 @@ export async function runAutomationAction(
   host: AutomationActionHost,
   schedule: StoredSchedule,
   runId: string,
+  cwd: string | null = null,
 ): Promise<ScheduleExecutionResult> {
   if (schedule.target.type !== "action") throw new Error("Expected an action target");
   const target = schedule.target;
@@ -30,7 +31,7 @@ export async function runAutomationAction(
         prompt: schedule.prompt,
         run: { automationId: schedule.id, automationName: schedule.name, runId },
         trigger: schedule.runs.find((run) => run.id === runId)?.trigger ?? { type: "manual" },
-        cwd: null,
+        cwd,
       },
       timeoutMs,
     ),
