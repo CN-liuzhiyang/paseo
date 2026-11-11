@@ -4,6 +4,7 @@ import type { SingleResult } from "../../output/index.js";
 import { scheduleSchema } from "./schema.js";
 import {
   connectScheduleClient,
+  requireVisibleSchedule,
   requireAutomationsSupport,
   toScheduleCommandError,
   toScheduleRow,
@@ -19,6 +20,7 @@ export async function runRunOnceCommand(
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {
     if (options.eventJson !== undefined) requireAutomationsSupport(client);
+    await requireVisibleSchedule(client, id);
     const event =
       options.eventJson === undefined
         ? undefined

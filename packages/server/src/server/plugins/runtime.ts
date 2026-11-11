@@ -363,6 +363,7 @@ export class PluginRuntime {
     this.plugins.set(pluginId, loaded);
     this.reportChannelConflicts(loaded);
     this.reportActionConflicts();
+    this.reportTriggerSourceConflicts();
     this.notifySessionOpenChange(loaded);
     this.appendLog(pluginId, "stdout", "[paseo] Plugin ready");
   }
@@ -383,6 +384,7 @@ export class PluginRuntime {
       clientBundle: bundles.clientBundle ?? "",
     });
     this.plugins.set(input.id, loaded);
+    this.reportTriggerSourceConflicts();
     this.notifySessionOpenChange(loaded);
     this.appendLog(input.id, "stdout", "[paseo] Plugin ready");
   }
@@ -573,9 +575,27 @@ export class PluginRuntime {
   }
 
   listTriggerSources(): ScheduleTriggerSource[] {
-    return [...this.plugins.values()].flatMap((plugin) =>
-      plugin.triggerSources.map((source) => ({ ...source, pluginId: plugin.id })),
-    );
+    const result = new Map<string, ScheduleTriggerSource>();
+    for (const plugin of [...this.plugins.values()].sort((a, b) => a.id.localeCompare(b.id))) {
+      for (const source of plugin.triggerSources) {
+        if (!result.has(source.id)) result.set(source.id, { ...source, pluginId: plugin.id });
+      }
+    }
+    return [...result.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private reportTriggerSourceConflicts(): void {
+    const owners = new Map(this.listTriggerSources().map((source) => [source.id, source.pluginId]));
+    for (const plugin of this.plugins.values()) {
+      for (const source of plugin.triggerSources) {
+        if (owners.get(source.id) !== plugin.id)
+          this.appendLog(
+            plugin.id,
+            "stderr",
+            `[paseo] Event source "${source.id}" is owned by plugin ${owners.get(source.id)}; emit is disabled`,
+          );
+      }
+    }
   }
 
   private actionOwner(id: string): LoadedPlugin {
@@ -618,6 +638,12 @@ export class PluginRuntime {
         ?.triggerSources.find((entry) => entry.id === message.sourceId);
       if (!source || !source.events.some((event) => event.id === message.event.event))
         throw new Error(`Unregistered event: ${message.sourceId}:${message.event.event}`);
+      const owner = this.listTriggerSources().find((entry) => entry.id === message.sourceId);
+      if (owner?.pluginId !== pluginId) {
+        const reason = `Event source "${message.sourceId}" is owned by plugin ${owner?.pluginId}`;
+        this.appendLog(pluginId, "stderr", `[paseo] ${reason}; emit rejected`);
+        throw new Error(reason);
+      }
       if (!this.triggerHandler) throw new Error("Automation event router is unavailable");
       return this.triggerHandler(pluginId, message.sourceId, message.event);
     };
@@ -631,7 +657,12 @@ export class PluginRuntime {
             error: describeError(error),
           }),
       )
-      .catch(() => undefined);
+      .catch((error) =>
+        this.logger.warn(
+          { err: error, pluginId, requestId: message.requestId },
+          "Failed to send event emission response",
+        ),
+      );
   }
 
   /**
@@ -1270,6 +1301,7 @@ export class PluginRuntime {
     }
     if (message.type === "triggers.changed") {
       loaded.triggerSources = message.triggerSources;
+      this.reportTriggerSourceConflicts();
       return;
     }
     if (message.type === "hooks.changed") {

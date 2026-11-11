@@ -208,6 +208,8 @@ export const StoredScheduleSchema = z.object({
   lastDelivery: ScheduleLastDeliverySchema.optional(),
   triggers: z.array(AutomationTriggerSchema).optional(),
   pauseReason: z.string().optional(),
+  // Resume counts only newly appended runs, even if their timestamps match older runs.
+  eventRateLimitRunOffset: z.number().int().nonnegative().optional(),
   source: ProjectSourceRefSchema.optional(),
   runs: z.array(ScheduleRunSchema),
 });

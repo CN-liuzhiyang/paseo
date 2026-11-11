@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
@@ -17,7 +17,7 @@ test("plugin events execute actions, deliver results, stop causal loops and canc
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 export default function contribute(server) {
-  let cancelled = false;
+  let cancelled = false; let resolved = false;
   const deliveries = [];
   server.registerTriggerSource({ id: "demo", events: [{ id: "ping", fields: ["sender"] }] });
   server.registerAction({ id: "echo", params: z.object({ text: z.string() }), run: ({ params }) => ({ text: params.text }) });
@@ -25,14 +25,14 @@ export default function contribute(server) {
   server.registerAction({ id: "crash", params: z.object({}), run() { process.exit(17); } });
   server.registerAction({ id: "slow", params: z.object({}), async run(_input, context) {
     await new Promise((resolve) => context.signal.addEventListener("abort", () => { cancelled = true; resolve(); }, { once: true }));
-    return { text: "late" };
+    resolved = true; return { text: "late" };
   } });
   server.registerChannel({ id: "results", async deliver(delivery) {
     deliveries.push(delivery);
     await server.emit("demo", { event: "ping", id: "sent:" + delivery.idempotencyKey, causedBy: delivery.idempotencyKey });
   } });
   server.handle(defineRpc({ name: "emit", input: z.object({ id: z.string(), source: z.string().default("demo"), event: z.string().default("ping") }), output: z.unknown() }), ({ id, source, event }) => server.emit(source, { id, event }));
-  server.handle(defineRpc({ name: "state", input: z.object({}), output: z.unknown() }), () => ({ cancelled, deliveries }));
+  server.handle(defineRpc({ name: "state", input: z.object({}), output: z.unknown() }), () => ({ cancelled, resolved, deliveries }));
   return () => {};
 }`,
   );
@@ -58,6 +58,34 @@ export default function contribute(server) {
     expect((await client.scheduleTriggers()).triggers).toEqual([
       expect.objectContaining({ id: "demo", pluginId: "automation-test" }),
     ]);
+    const conflictRoot = path.join(root, "conflict");
+    await mkdir(conflictRoot);
+    await writeFile(
+      path.join(conflictRoot, "paseo-plugin.json"),
+      JSON.stringify({ id: "z-conflict", requirements: { paseo: ">=0.15.3" } }),
+    );
+    await writeFile(
+      path.join(conflictRoot, "index.server.ts"),
+      `
+import { defineRpc } from "@getpaseo/plugin"; import { z } from "zod";
+export default function contribute(server) {
+  server.registerTriggerSource({ id: "demo", events: [{ id: "ping" }] });
+  server.handle(defineRpc({ name: "emit", input: z.object({}), output: z.unknown() }), () => server.emit("demo", { event: "ping", id: "one" }));
+  return () => {};
+}`,
+    );
+    await client.installDirectoryPlugin(conflictRoot);
+    expect((await client.scheduleTriggers()).triggers).toEqual([
+      expect.objectContaining({ id: "demo", pluginId: "automation-test" }),
+    ]);
+    await expect(client.invokePluginRpc("z-conflict", "emit", {})).rejects.toThrow(
+      "owned by plugin automation-test",
+    );
+    expect(
+      (await client.getPluginLogs("z-conflict")).some((entry) =>
+        entry.message.includes("emit rejected"),
+      ),
+    ).toBe(true);
     await expect(
       client.scheduleCreate({
         prompt: "test",
@@ -91,6 +119,13 @@ export default function contribute(server) {
         trigger: expect.objectContaining({ eventId: "one", depth: 1 }),
       }),
     ]);
+    await client.scheduleUpdate({
+      id,
+      actionConfig: { params: { text: "changed" }, timeoutMs: 1000 },
+    });
+    expect(
+      (await client.scheduleUpdate({ id, actionConfig: { timeoutMs: null } })).schedule?.target,
+    ).toEqual({ type: "action", action: "echo", params: { text: "changed" } });
     const slow = await client.scheduleCreate({
       prompt: "slow",
       cadence: { type: "none" },
@@ -106,7 +141,14 @@ export default function contribute(server) {
     });
     await expect
       .poll(async () => client.invokePluginRpc("automation-test", "state", {}))
-      .toMatchObject({ cancelled: true });
+      .toMatchObject({ cancelled: true, resolved: true });
+    expect((await client.scheduleLogs({ id: slow.schedule.id })).runs).toEqual([
+      expect.objectContaining({
+        status: "failed",
+        output: null,
+        error: 'Action "slow" timed out after 0.1s',
+      }),
+    ]);
     const broken = await client.scheduleCreate({
       prompt: "throw",
       cadence: { type: "none" },
@@ -127,6 +169,9 @@ export default function contribute(server) {
       status: "active",
       runs: [expect.objectContaining({ status: "failed" })],
     });
+    expect(
+      (await client.scheduleUpdate({ id: crash.schedule.id, name: "after crash" })).schedule?.name,
+    ).toBe("after crash");
   } finally {
     await client.close();
     await daemon.close();

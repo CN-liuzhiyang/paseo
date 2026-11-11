@@ -1,4 +1,4 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Logger } from "pino";
@@ -12,6 +12,7 @@ import {
   type AutomationTrigger,
 } from "@getpaseo/protocol/schedule/types";
 import { writeJsonFileAtomic } from "../atomic-file.js";
+import { ScheduleStateConflictError } from "./service.js";
 
 interface TriggerService {
   list(): Promise<StoredSchedule[]>;
@@ -93,7 +94,14 @@ export class AutomationTriggers {
     try {
       seen = SeenEventsSchema.parse(JSON.parse(await readFile(path, "utf8")));
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        const backup = `${path}.corrupt-${now}`;
+        await rename(path, backup);
+        this.options.logger.warn(
+          { err: error, path, backup },
+          "Rebuilding unreadable event deduplication file",
+        );
+      }
       seen = [];
     }
     seen = seen.filter((entry) => entry.at > now - 7 * 86_400_000).slice(-1000);
@@ -160,11 +168,15 @@ export class AutomationTriggers {
   private async launch(schedule: StoredSchedule, trigger: EventRunTrigger): Promise<boolean> {
     if (this.closed || schedule.status !== "active") return false;
     const hourAgo = this.now().getTime() - 3_600_000;
-    const count = schedule.runs.filter(
-      (run) => run.trigger?.type === "event" && Date.parse(run.startedAt) > hourAgo,
-    ).length;
+    const count = schedule.runs
+      .slice(schedule.eventRateLimitRunOffset ?? 0)
+      .filter((run) => run.trigger?.type === "event" && Date.parse(run.startedAt) > hourAgo).length;
     if (count >= 20) {
-      await this.options.service.pause(schedule.id, "rate-limit");
+      try {
+        await this.options.service.pause(schedule.id, "rate-limit");
+      } catch (error) {
+        if (!(error instanceof ScheduleStateConflictError)) throw error;
+      }
       this.pending.delete(schedule.id);
       return false;
     }

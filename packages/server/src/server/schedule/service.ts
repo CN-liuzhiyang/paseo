@@ -615,6 +615,9 @@ export class ScheduleService {
         ...schedule,
         status: "active" as const,
         pauseReason: undefined,
+        ...(schedule.pauseReason === "rate-limit"
+          ? { eventRateLimitRunOffset: schedule.runs.length }
+          : {}),
         pausedAt: null,
         nextRunAt: computeNextRunAt(schedule.cadence, now)?.toISOString() ?? null,
         updatedAt: now.toISOString(),
@@ -794,7 +797,7 @@ export class ScheduleService {
     const now = this.now();
     const schedules = await this.store.list();
     for (const schedule of schedules) {
-      if (schedule.status !== "active" || !schedule.nextRunAt) {
+      if (schedule.status !== "active") {
         continue;
       }
       if (this.runningScheduleIds.has(schedule.id)) {
@@ -804,7 +807,7 @@ export class ScheduleService {
         await this.completeScheduleIfDue(schedule.id, now);
         continue;
       }
-      if (new Date(schedule.nextRunAt).getTime() > now.getTime()) {
+      if (!schedule.nextRunAt || new Date(schedule.nextRunAt).getTime() > now.getTime()) {
         continue;
       }
       await this.runSchedule(schedule, now);
@@ -813,11 +816,7 @@ export class ScheduleService {
 
   private async completeScheduleIfDue(scheduleId: string, now: Date): Promise<void> {
     const updated = await this.store.update(scheduleId, (schedule) => {
-      if (
-        schedule.status !== "active" ||
-        !schedule.nextRunAt ||
-        !shouldCompleteSchedule(schedule, now)
-      ) {
+      if (schedule.status !== "active" || !shouldCompleteSchedule(schedule, now)) {
         return schedule;
       }
       return completeSchedule(schedule, now);
@@ -1153,7 +1152,10 @@ export class ScheduleService {
       } else if (updated.status === "completed") {
         // Completed concurrently (e.g. the target agent was archived mid-run);
         // record the run outcome but leave the schedule terminal — don't advance.
-      } else if (params.manual && !shouldCompleteSchedule(updated, now)) {
+      } else if (
+        params.manual &&
+        completedRuns.find((run) => run.id === params.runId)?.trigger?.type !== "event"
+      ) {
         // Manual one-shot runs do not advance the cadence or recompute completion.
       } else if (shouldCompleteSchedule(updated, now)) {
         updated = completeSchedule(updated, now);

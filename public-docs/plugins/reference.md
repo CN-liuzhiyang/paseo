@@ -2283,7 +2283,9 @@ Registration after the entry returns is supported, like outbound channels.
 
 `await emit(sourceId, { event, id, occurredAt?, subject?, data?, causedBy? })` emits
 only a source this plugin registered and a declared event ID. Use a stable external
-ID. `occurredAt` is an ISO timestamp, defaulting to receipt time; `data` is a JSON
+ID, unique across the source, not just within one event type. If plugins register the
+same source ID, the smallest plugin ID owns it; other plugins cannot emit through it.
+`occurredAt` is an ISO timestamp, defaulting to receipt time; `data` is a JSON
 object limited to 16KB. The result is `{ status, started, deferred, skipped }`;
 status is `accepted`, `duplicate` or `stale`, and started contains automation IDs.
 Acceptance does not wait for actions or delivery to finish.
@@ -2296,11 +2298,14 @@ offline events: the source plugin owns a replay cursor and can safely resend IDs
 One pending event survives while an automation is busy; later events replace it and
 increment `run.trigger.coalesced`. This pending slot is in memory and is lost on restart.
 
-A plugin may emit at most 120 events per minute. An automation pauses with
+A plugin may emit at most 120 events per minute, including replayed events; replay
+plugins must back off and retry rejected events. An automation pauses with
 `pauseReason: "rate-limit"` after 20 event runs per hour; a person must resume it.
 When an event results from a run, set `causedBy` to its run ID (also the channel's
 `idempotencyKey`). That automation cannot trigger itself, and causal depth above
-three is discarded. Event data is untrusted; agent prompts label and quote it as
+three is discarded. If the referenced run no longer exists, causal loop protection
+cannot resolve it; the 20/hour limit remains the safeguard. Resuming a rate-limit
+pause starts its event quota from zero. Event data is untrusted; agent prompts label and quote it as
 data, and actions receive it unchanged. Avoid unrestricted agent permission modes
 for automations driven by external events.
 

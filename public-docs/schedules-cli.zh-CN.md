@@ -32,11 +32,13 @@ paseo automation logs <id>
 
 --action 与 provider、mode、thinking、workspace、cwd 等代理目标参数互斥。
 重复 --param k=v 或用 --params-json 传嵌套对象；param 覆盖 JSON 对象中的同名键。
-未加引号的数字和布尔值保留类型。更新会整体替换参数对象。--timeout 最多 60 分钟。
+未加引号的数字和布尔值保留类型。参数选项会整体替换参数对象；只改 --action 或 --timeout
+会保留其他动作字段。--timeout 最多 60 分钟。
 actions/triggers 可发现已注册动作、参数模式和事件源。列表和详情显示触发与动作，
 日志显示触发来源和合并数。手动事件测试不参与去重。
 
-事件运行不推进时钟；运行次数和到期限制对事件与手动运行都生效。
+事件运行不推进时钟，并遵守运行次数和到期限制；手动运行沿用上游行为，
+不会使计划完成或推进时钟。
 限流暂停可在 PauseReason 看到；处理原因后用 resume 恢复。
 重放、合并、防环和入口限流见[事件契约](/docs/plugins/reference#automation-actions-and-events)。
 

@@ -521,6 +521,31 @@ describe("ScheduleService", () => {
     expect((await service.resume(clock.id)).pauseReason).toBeUndefined();
   });
 
+  test("tick completes expired no-clock automations without another event", async () => {
+    const service = createScheduleService({
+      paseoHome: tempDir,
+      logger: createTestLogger(),
+      agentManager: new AgentManager({ logger: createTestLogger() }),
+      agentStorage,
+      providerSnapshotManager: NO_UNATTENDED_SCHEDULE_POLICY,
+      now: () => now,
+      validateAction: async () => {},
+    });
+    const created = await service.create({
+      prompt: "expires",
+      cadence: { type: "none" },
+      target: { type: "action", action: "echo", params: {} },
+      expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+    });
+    now = new Date(now.getTime() + 60_001);
+    await service.tick();
+    expect(await service.inspect(created.id)).toMatchObject({
+      status: "completed",
+      nextRunAt: null,
+      runs: [],
+    });
+  });
+
   test("ticks due schedules and records run history on disk", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
@@ -2735,7 +2760,7 @@ describe("ScheduleService", () => {
     expect(created.nextRunAt).toBe(now.toISOString());
   });
 
-  test("runOnce records a run and completes the schedule when its run limit is reached", async () => {
+  test("runOnce records runs beyond maxRuns without advancing the clock or completing", async () => {
     const service = createScheduleService({
       paseoHome: tempDir,
       logger: createTestLogger(),
@@ -2761,13 +2786,17 @@ describe("ScheduleService", () => {
     expect(created.nextRunAt).toBe("2026-01-01T09:30:00.000Z");
 
     const after = await service.runOnce(created.id);
-    expect(after.nextRunAt).toBeNull();
-    expect(after.status).toBe("completed");
+    expect(after.nextRunAt).toBe(created.nextRunAt);
+    expect(after.status).toBe("active");
     expect(after.runs).toHaveLength(1);
     expect(after.runs[0]).toMatchObject({
       status: "succeeded",
       agentId: "00000000-0000-0000-0000-000000000099",
       output: "manual:manual fire",
+    });
+    expect(await service.runOnce(created.id)).toMatchObject({
+      status: "active",
+      nextRunAt: created.nextRunAt,
     });
   });
 

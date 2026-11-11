@@ -37,13 +37,14 @@ the clock. Manual execution still works with no triggers.
 `--action` conflicts with agent target options (provider, mode, thinking, workspace,
 cwd). Repeat `--param k=v`, or use `--params-json` for nested objects; param flags
 override keys from the JSON object. Unquoted numbers and booleans keep their types.
-Updates replace the entire parameter object. `--timeout` is limited to 60 minutes.
+Parameter flags replace the entire parameter object. Changing only `--action` or
+`--timeout` preserves the other action fields. `--timeout` is limited to 60 minutes.
 Actions, triggers and parameter schemas are discoverable through the commands above.
 Lists and inspection show triggers and actions; logs identify the trigger and how
 many pending events were coalesced. Manual event tests bypass deduplication.
 
-Event runs preserve the clock cursor. Run limits and expiry apply to event and
-manual runs. A rate-limit pause appears in inspection's PauseReason; use `resume`
+Event runs preserve the clock cursor. Run limits and expiry apply to event runs; manual runs keep the upstream behavior
+and do not complete the schedule or advance its clock. A rate-limit pause appears in inspection's PauseReason; use `resume`
 after addressing the cause. See [the event contract](/docs/plugins/reference#automation-actions-and-events)
 for replay, coalescing, causal loop prevention and ingress limits.
 

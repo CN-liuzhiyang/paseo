@@ -51,20 +51,18 @@ test("passes the original prompt, stable run key and params to the plugin", asyn
   expect(result).toEqual({ agentId: null, output: "hi" });
 });
 
-test.each(["plugin crashed", "action threw", "action timed out"])(
-  "records a rejected runtime request: %s",
-  async (message) => {
-    await expect(
-      runAutomationAction(
-        host(async () => {
-          throw new Error(message);
-        }),
-        schedule,
-        "run",
-      ),
-    ).rejects.toThrow(message);
-  },
-);
+test("propagates the runtime rejection without replacing its message", async () => {
+  const message = "runtime rejected request";
+  await expect(
+    runAutomationAction(
+      host(async () => {
+        throw new Error(message);
+      }),
+      schedule,
+      "run",
+    ),
+  ).rejects.toThrow(message);
+});
 
 test("truncates output to 64KB without exceeding the UTF-8 byte budget", async () => {
   const result = await runAutomationAction(

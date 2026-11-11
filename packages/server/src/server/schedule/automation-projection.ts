@@ -7,7 +7,13 @@ export function projectAutomation(
 ): StoredSchedule | null {
   if (capable) return schedule;
   if (schedule.cadence.type === "none" || schedule.target.type === "action") return null;
-  const { triggers: _triggers, source: _source, pauseReason: _reason, ...legacy } = schedule;
+  const {
+    triggers: _triggers,
+    source: _source,
+    pauseReason: _reason,
+    eventRateLimitRunOffset: _offset,
+    ...legacy
+  } = schedule;
   return { ...legacy, runs: projectAutomationRuns(schedule.runs, false) };
 }
 
