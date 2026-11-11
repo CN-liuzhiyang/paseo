@@ -31,7 +31,7 @@ const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 // tokens and estimated API cost, a generic upstreamable provider usage change. Reduce the
 // budget when upstream absorbs this patch. Current delta: 169 files / 10881 lines. Raised to 180/11400
 // on 2026-11-10 for `paseo workspace label`, a generic CLI for the daemon's existing workspace labels.
-// Raised to 205/15500 on 2026-11-11 for approved automation extension points: plugin actions,
+// Raised to 210/16000 on 2026-11-11 for approved automation extension points: plugin actions,
 // event sources and project definitions (stages 1a/1b). Reduce when upstream absorbs them.
 const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 205);
 const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 15500);
