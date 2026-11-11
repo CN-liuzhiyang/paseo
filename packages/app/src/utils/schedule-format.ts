@@ -28,6 +28,24 @@ export function isNewAgentSchedule(schedule: ScheduleSummary): boolean {
   return schedule.target.type === "new-agent";
 }
 
+export function isReadOnlyAutomation(schedule: ScheduleSummary): boolean {
+  return (
+    schedule.target.type === "action" ||
+    schedule.cadence.type === "none" ||
+    (schedule.triggers?.length ?? 0) > 0 ||
+    schedule.source !== undefined
+  );
+}
+
+export function formatScheduleTriggers(schedule: ScheduleSummary): string {
+  const parts = schedule.cadence.type === "none" ? [] : [formatCadence(schedule.cadence)];
+  for (const trigger of schedule.triggers ?? []) {
+    if (trigger.type === "event") parts.push(`${String(trigger.source)}:${String(trigger.event)}`);
+    else parts.push(trigger.type);
+  }
+  return parts.join(" · ") || "—";
+}
+
 export function scheduleProductName(schedule: ScheduleSummary): "Heartbeat" | "Schedule" {
   return schedule.target.type === "agent" ? "Heartbeat" : "Schedule";
 }
@@ -84,6 +102,7 @@ function formatEvery(everyMs: number): string {
 }
 
 export function formatCadence(cadence: ScheduleCadence): string {
+  if (cadence.type === "none") return "—";
   if (cadence.type === "every") {
     return formatEvery(cadence.everyMs);
   }

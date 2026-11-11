@@ -26,7 +26,8 @@ import type { Theme } from "@/styles/theme";
 import type { ScheduleDerivedState } from "@/schedules/schedule-derivation";
 import type { LastDeliverySummary } from "@/schedules/schedule-delivery";
 import {
-  formatCadence,
+  formatScheduleTriggers,
+  isReadOnlyAutomation,
   formatNextRun,
   resolveScheduleTitle,
   scheduleProductName,
@@ -128,7 +129,8 @@ function buildMeta(input: {
 }): string {
   const { schedule, state, serverName, singleHost } = input;
   const parts = [
-    formatCadence(schedule.cadence),
+    formatScheduleTriggers(schedule),
+    ...(schedule.pauseReason ? [schedule.pauseReason] : []),
     `Created ${input.createdAgo}`,
     schedule.lastRunAt ? `Last run ${input.lastRunAgo}` : "Never run",
   ];
@@ -240,7 +242,9 @@ export function ScheduleRow({
         style={rowStyle}
         onPress={onEdit}
         accessibilityRole="button"
-        accessibilityLabel={`Edit ${productName.toLowerCase()} ${title}`}
+        accessibilityLabel={
+          isReadOnlyAutomation(schedule) ? title : `Edit ${productName.toLowerCase()} ${title}`
+        }
         testID={`schedule-row-${schedule.id}`}
       >
         <View style={styles.main}>
@@ -440,6 +444,7 @@ function ScheduleKebabMenu({
         <DropdownMenuItem
           leading={editLeading}
           onSelect={onEdit}
+          disabled={isReadOnlyAutomation(schedule)}
           testID={`schedule-menu-edit-${schedule.id}`}
         >
           Edit {productNameLower}

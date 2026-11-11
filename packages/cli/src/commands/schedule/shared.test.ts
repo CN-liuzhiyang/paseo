@@ -16,6 +16,9 @@ import {
   parseScheduleUpdateInput,
   requireScheduleWorkspaceSupport,
   toScheduleRow,
+  parseOn,
+  parseParams,
+  requireAutomationsSupport,
 } from "./shared.js";
 import type { ScheduleDaemonClient, ScheduleRecord } from "./types.js";
 
@@ -586,5 +589,56 @@ describe("compileEveryPresetToCron", () => {
 
   test.each(["15minutes", "junk15m", "1h-nope"])("rejects malformed preset %s", (value) => {
     expect(() => compileEveryPresetToCron(value)).toThrow("Invalid duration format");
+  });
+});
+
+describe("automation flags", () => {
+  test("parses event filters and typed parameters", () => {
+    expect(parseOn(["demo:ping,sender=alice,count=2,enabled=true"])).toEqual([
+      {
+        type: "event",
+        source: "demo",
+        event: "ping",
+        match: { sender: "alice", count: 2, enabled: true },
+      },
+    ]);
+    expect(
+      parseParams({
+        paramsJson: '{"nested":{"value":1},"text":"old"}',
+        param: ["text=hi", "count=2", "enabled=false"],
+      }),
+    ).toEqual({ nested: { value: 1 }, text: "hi", count: 2, enabled: false });
+    expect(() => parseOn(["bad"])).toThrow();
+    expect(() => parseParams({ param: ["bad"] })).toThrow();
+  });
+  test("creates event-only action automations without a remote cwd", () => {
+    const input = parseScheduleCreateInput({
+      prompt: "echo",
+      daemonTarget: selectDaemonTarget({ host: "ws://example.test" }, {}),
+      on: ["demo:ping"],
+      action: "demo.echo",
+      param: ["text=hi"],
+      timeout: "5m",
+    });
+    expect(input).toMatchObject({
+      cadence: { type: "none" },
+      runOnCreate: false,
+      target: { type: "action", action: "demo.echo", params: { text: "hi" }, timeoutMs: 300000 },
+    });
+    expect(() => parseScheduleCreateInput({ ...baseOptions, action: "echo" })).toThrow();
+  });
+  test("replaces or clears event triggers and removes clock triggers", () => {
+    expect(parseScheduleUpdateInput({ id: "one", clearOn: true, clock: false })).toEqual({
+      id: "one",
+      triggers: [],
+      cadence: { type: "none" },
+    });
+    expect(() =>
+      parseScheduleUpdateInput({ id: "one", clearOn: true, on: ["demo:ping"] }),
+    ).toThrow();
+  });
+  test("rejects new parameters against old daemons", () => {
+    const client = { getLastServerInfoMessage: () => ({ features: {} }) };
+    expect(() => requireAutomationsSupport(client)).toThrow();
   });
 });

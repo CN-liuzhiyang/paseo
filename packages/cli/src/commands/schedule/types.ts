@@ -1,6 +1,14 @@
+import type {
+  AutomationTrigger,
+  RunTrigger,
+  TriggerEvent,
+  ScheduleAction,
+  ScheduleTriggerSource,
+} from "@getpaseo/protocol/schedule/types";
 export type ScheduleStatus = "active" | "paused" | "completed";
 
 export type ScheduleCadence =
+  | { type: "none" }
   | {
       type: "every";
       everyMs: number;
@@ -12,6 +20,7 @@ export type ScheduleCadence =
     };
 
 export type ScheduleTarget =
+  | { type: "action"; action: string; params: Record<string, unknown>; timeoutMs?: number }
   | {
       type: "self";
       agentId: string;
@@ -69,6 +78,7 @@ export interface ScheduleRunRecord {
   output: string | null;
   error: string | null;
   delivery?: ScheduleRunDelivery;
+  trigger?: RunTrigger;
 }
 
 export interface ScheduleRecord {
@@ -76,8 +86,10 @@ export interface ScheduleRecord {
   name: string | null;
   prompt: string;
   cadence: ScheduleCadence;
+  triggers?: AutomationTrigger[];
   target: Exclude<ScheduleTarget, { type: "self" }>;
   status: ScheduleStatus;
+  pauseReason?: string;
   createdAt: string;
   updatedAt: string;
   nextRunAt: string | null;
@@ -90,9 +102,11 @@ export interface ScheduleRecord {
 }
 
 export interface ScheduleListItem {
+  pauseReason?: string;
   id: string;
   name: string | null;
   cadence: ScheduleCadence;
+  triggers?: AutomationTrigger[];
   target: Exclude<ScheduleTarget, { type: "self" }>;
   status: ScheduleStatus;
   nextRunAt: string | null;
@@ -109,6 +123,7 @@ export interface CreateScheduleInput {
   prompt: string;
   name?: string;
   cadence: ScheduleCadence;
+  triggers?: AutomationTrigger[];
   target: ScheduleTarget;
   maxRuns?: number;
   expiresAt?: string;
@@ -177,6 +192,8 @@ export interface UpdateScheduleInput {
   name?: string | null;
   prompt?: string;
   cadence?: ScheduleCadence;
+  triggers?: AutomationTrigger[];
+  actionTarget?: Extract<ScheduleTarget, { type: "action" }>;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
@@ -190,7 +207,9 @@ export interface ScheduleUpdatePayload {
 }
 
 export interface ScheduleDaemonClient {
-  getLastServerInfoMessage(): { features?: { scheduleWorkspaceTarget?: boolean } } | null;
+  getLastServerInfoMessage(): {
+    features?: { scheduleWorkspaceTarget?: boolean; automations?: boolean };
+  } | null;
   scheduleCreate(input: CreateScheduleInput): Promise<ScheduleCreatePayload>;
   scheduleList(): Promise<ScheduleListPayload>;
   scheduleInspect(input: { id: string }): Promise<ScheduleInspectPayload>;
@@ -198,8 +217,18 @@ export interface ScheduleDaemonClient {
   schedulePause(input: { id: string }): Promise<SchedulePausePayload>;
   scheduleResume(input: { id: string }): Promise<ScheduleResumePayload>;
   scheduleDelete(input: { id: string }): Promise<ScheduleDeletePayload>;
-  scheduleRunOnce(input: { id: string }): Promise<ScheduleRunOncePayload>;
+  scheduleRunOnce(input: { id: string; event?: TriggerEvent }): Promise<ScheduleRunOncePayload>;
   scheduleUpdate(input: UpdateScheduleInput): Promise<ScheduleUpdatePayload>;
+  scheduleActions?(): Promise<{
+    requestId: string;
+    actions: ScheduleAction[];
+    error: string | null;
+  }>;
+  scheduleTriggers?(): Promise<{
+    requestId: string;
+    triggers: ScheduleTriggerSource[];
+    error: string | null;
+  }>;
   scheduleChannels(): Promise<ScheduleChannelsPayload>;
   close(): Promise<void>;
 }

@@ -10,16 +10,33 @@ import { runResumeCommand } from "./resume.js";
 import { runDeleteCommand } from "./delete.js";
 import { runRunOnceCommand } from "./run-once.js";
 import { runUpdateCommand } from "./update.js";
+import { runActionsCommand } from "./actions.js";
+import { runTriggersCommand } from "./triggers.js";
 import { runChannelsCommand } from "./channels.js";
 
 export function createScheduleCommand(): Command {
-  const schedule = new Command("schedule").description("Manage recurring schedules");
+  const schedule = new Command("schedule")
+    .alias("automation")
+    .description("Manage recurring schedules");
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("create")
       .description("Create a schedule")
+      .option("--action <id>", "Plugin action to execute")
       .argument("<prompt>", "Prompt to run on the schedule")
+      .option(
+        "--on <source:event[,k=v...]>",
+        "Event trigger (repeatable)",
+        (value: string, previous: string[] = []) => [...previous, value],
+      )
+      .option(
+        "--param <k=v>",
+        "Action parameter (repeatable)",
+        (value: string, previous: string[] = []) => [...previous, value],
+      )
+      .option("--params-json <json>", "Action parameters as a JSON object")
+      .option("--timeout <duration>", "Action timeout (maximum 60m)")
       .option("--every <duration>", "Cron-compatible cadence preset (for example: 5m, 1h)")
       .option("--cron <expr>", "Cron cadence expression")
       .option("--timezone <iana>", "IANA time zone for cron cadence (default: UTC)")
@@ -91,6 +108,7 @@ export function createScheduleCommand(): Command {
     schedule
       .command("run-once")
       .description("Manually trigger a single run of a schedule without affecting cadence")
+      .option("--event-json <json>", "Test event (recorded as manual, bypasses deduplication)")
       .argument("<id>", "Schedule ID"),
   ).action(withOutput(runRunOnceCommand));
 
@@ -98,6 +116,20 @@ export function createScheduleCommand(): Command {
     schedule
       .command("update")
       .description("Update an existing schedule in place")
+      .option("--clear-on", "Clear all event triggers")
+      .option("--no-clock", "Remove the clock trigger")
+      .option(
+        "--on <source:event[,k=v...]>",
+        "Replace event triggers (repeatable)",
+        (value: string, previous: string[] = []) => [...previous, value],
+      )
+      .option(
+        "--param <k=v>",
+        "Replace action parameters (repeatable)",
+        (value: string, previous: string[] = []) => [...previous, value],
+      )
+      .option("--params-json <json>", "Replace action parameters as a JSON object")
+      .option("--timeout <duration>", "Action timeout (maximum 60m)")
       .argument("<id>", "Schedule ID")
       .option("--every <duration>", "Cron-compatible cadence preset (for example: 5m, 1h)")
       .option("--cron <expr>", "Switch to cron cadence expression")
@@ -124,5 +156,11 @@ export function createScheduleCommand(): Command {
       .option("--no-deliver", "Stop delivering run results"),
   ).action(withOutput(runUpdateCommand));
 
+  addJsonAndDaemonHostOptions(
+    schedule.command("actions").description("List plugin actions and parameter schemas"),
+  ).action(withOutput(runActionsCommand));
+  addJsonAndDaemonHostOptions(
+    schedule.command("triggers").description("List plugin event sources"),
+  ).action(withOutput(runTriggersCommand));
   return schedule;
 }

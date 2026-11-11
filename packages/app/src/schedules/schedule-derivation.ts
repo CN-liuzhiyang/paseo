@@ -96,6 +96,7 @@ function isWorkspaceTargetGone(input: ResolveScheduleInput): boolean {
 
 function resolveTarget(input: ResolveScheduleInput): ScheduleTargetResolution {
   const { schedule, serverId, agentsByKey, projectNameByCwd } = input;
+  if (schedule.target.type === "action") return { label: schedule.target.action, provider: null };
   if (schedule.target.type === "agent") {
     const agent = agentsByKey.get(agentKey(serverId, schedule.target.agentId));
     if (agent) {

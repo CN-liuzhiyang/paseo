@@ -78,6 +78,8 @@ import { greetingRpc } from "./shared/greeting";
 
 export default function contribute(server: PluginServerContext) {
   server.handle(greetingRpc, createGreeting);
+  // Optional host APIs: gate registerAction/registerTriggerSource/emit once in this entry.
+  // See plugin-examples/automation-demo for actions and external event triggers.
   return () => {};
 }
 `;

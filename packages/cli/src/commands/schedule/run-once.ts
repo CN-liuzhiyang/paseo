@@ -1,9 +1,10 @@
 import type { Command } from "commander";
+import { TriggerEventSchema } from "@getpaseo/protocol/schedule/types";
 import type { SingleResult } from "../../output/index.js";
 import { scheduleSchema } from "./schema.js";
 import {
   connectScheduleClient,
-  requireNewAgentSchedule,
+  requireAutomationsSupport,
   toScheduleCommandError,
   toScheduleRow,
   type ScheduleCommandOptions,
@@ -12,13 +13,17 @@ import {
 
 export async function runRunOnceCommand(
   id: string,
-  options: ScheduleCommandOptions,
+  options: ScheduleCommandOptions & { eventJson?: string },
   _command: Command,
 ): Promise<SingleResult<ScheduleRow>> {
   const { client } = await connectScheduleClient(options.daemonTarget);
   try {
-    await requireNewAgentSchedule(client, id);
-    const payload = await client.scheduleRunOnce({ id });
+    if (options.eventJson !== undefined) requireAutomationsSupport(client);
+    const event =
+      options.eventJson === undefined
+        ? undefined
+        : TriggerEventSchema.parse(JSON.parse(options.eventJson));
+    const payload = await client.scheduleRunOnce({ id, ...(event ? { event } : {}) });
     if (payload.error || !payload.schedule) {
       throw new Error(payload.error ?? `Failed to run schedule once: ${id}`);
     }
