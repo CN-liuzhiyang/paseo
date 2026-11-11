@@ -291,6 +291,17 @@ export default function contribute(server: PluginServerContext) {
 
 版本范围和预发布版本的语义见[版本要求](reference#requirements)。
 
+## 使用可选自动化接口 {#adopt-optional-automation-apis}
+
+在服务端入口统一检查 server.registerAction、registerTriggerSource、emit 是否为函数，
+再注册自动化；旧宿主上这些接口为 undefined。用 Zod 声明动作参数和有限操作白名单，
+处理 AbortSignal，保留稳定外部事件 ID 和重放游标。完整契约见
+[动作与事件](/docs/plugins/reference#automation-actions-and-events) 和
+`plugin-examples/automation-demo`。
+
+降级 daemon 前备份计划状态：旧宿主会跳过动作和无时钟文件，重写兼容记录时可能
+剥掉事件触发字段。
+
 ## 8. 验证迁移 {#8-verify-the-migration}
 
 运行：

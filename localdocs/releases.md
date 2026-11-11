@@ -209,6 +209,14 @@ override can both be left alone.
 Both apps register the `paseo://` scheme — whichever installed last wins deep
 links.
 
+## Automation downgrade
+
+Back up schedules before returning to a daemon without automation support. It skips
+files using action targets or cadence:none, but can erase event trigger fields when
+rewriting other schedules. Older clients remain supported through explicit projections.
+The new client advertises automations; the daemon advertises features.automations.
+Project sources are reserved for stage 1b and are not loaded yet.
+
 ## The web app is still upstream's
 
 A teammate can open `app.paseo.sh` against a daemon from this fork, and that

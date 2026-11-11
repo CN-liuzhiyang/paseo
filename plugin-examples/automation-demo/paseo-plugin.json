@@ -1,0 +1,4 @@
+{
+  "id": "automation-demo",
+  "requirements": { "paseo": ">=0.15.3" }
+}

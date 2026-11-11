@@ -117,6 +117,10 @@ Only set feature IDs returned by `inspect_provider`. For Codex fast mode, look f
 
 ## Schedules and heartbeats
 
+Plugin automations use `paseo automation` (alias of `schedule`): `actions`, `triggers`,
+`create --on source:event --action id --param k=v`, `update --clear-on --no-clock`,
+and `run-once --event-json`. New flags require `features.automations`; see public-docs/schedules-cli.md.
+
 **`create_schedule`** — starts a new agent on a cron cadence. Required: `prompt`, `cron`, `provider`. Optional: `timezone`, `name`, `cwd`, `maxRuns`, `expiresIn`, `delivery` (`{ channel, to }`: post each run's result to a channel a plugin registered). Use when the recurring work should live in fresh agents.
 
 **`create_heartbeat`** — sends you a prompt on a cron cadence. Required: `prompt`, `cron`. Optional: `timezone`, `name`, `maxRuns`, `expiresIn`. Use for reminders, PR/build babysitting, and status checks that should return to this conversation.
