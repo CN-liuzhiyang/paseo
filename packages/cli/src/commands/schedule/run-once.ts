@@ -27,7 +27,7 @@ export async function runRunOnceCommand(
         : TriggerEventSchema.parse(JSON.parse(options.eventJson));
     const payload = await client.scheduleRunOnce({ id, ...(event ? { event } : {}) });
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? `Failed to run schedule once: ${id}`);
+      throw new Error(payload.error ?? `Failed to run automation once: ${id}`);
     }
     return {
       type: "single",
@@ -35,7 +35,7 @@ export async function runRunOnceCommand(
       schema: scheduleSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_RUN_ONCE_FAILED", "run schedule once", error);
+    throw toScheduleCommandError("SCHEDULE_RUN_ONCE_FAILED", "run automation once", error);
   } finally {
     await client.close().catch(() => {});
   }

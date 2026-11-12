@@ -39,7 +39,8 @@ export function normalizeScheduleFormCadence(
   cadence: ScheduleCadence,
   timezone: string,
 ): CronCadence {
-  if (cadence.type === "none") throw new Error("Event automations are read-only in the app");
+  // The clock selector owns "none"; the cron editor still needs a value to show.
+  if (cadence.type === "none") return { type: "cron", expression: "0 * * * *", timezone };
   if (cadence.type === "cron") {
     return { ...cadence, timezone: cadence.timezone ?? timezone };
   }

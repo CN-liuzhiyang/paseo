@@ -20,10 +20,10 @@ export async function runInspectCommand(
   try {
     const payload = await client.scheduleInspect({ id });
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? `Schedule not found: ${id}`);
+      throw new Error(payload.error ?? `Automation not found: ${id}`);
     }
     if (payload.schedule.target.type === "agent" && !payload.schedule.triggers?.length) {
-      throw new Error(`Schedule not found: ${id}`);
+      throw new Error(`Automation not found: ${id}`);
     }
     const rows = createScheduleInspectRows(payload.schedule);
     return {
@@ -32,7 +32,7 @@ export async function runInspectCommand(
       schema: createScheduleInspectSchema(payload.schedule),
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_INSPECT_FAILED", "inspect schedule", error);
+    throw toScheduleCommandError("SCHEDULE_INSPECT_FAILED", "inspect automation", error);
   } finally {
     await client.close().catch(() => {});
   }

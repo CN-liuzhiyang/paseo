@@ -35,7 +35,7 @@ function itemLabel(key: SidebarNavKey): string {
     "new-workspace": "New workspace",
     history: "History",
     search: "Search",
-    schedules: "Schedules",
+    schedules: "Automations",
   }[key];
 }
 

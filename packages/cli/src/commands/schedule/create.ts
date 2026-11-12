@@ -65,7 +65,7 @@ export async function runCreateCommand(
     }
     const payload = await client.scheduleCreate(input);
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? "Schedule creation failed");
+      throw new Error(payload.error ?? "Automation creation failed");
     }
     return {
       type: "single",
@@ -73,7 +73,7 @@ export async function runCreateCommand(
       schema: scheduleSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_CREATE_FAILED", "create schedule", error);
+    throw toScheduleCommandError("SCHEDULE_CREATE_FAILED", "create automation", error);
   } finally {
     await client.close().catch(() => {});
   }

@@ -19,6 +19,8 @@ cron 是标准的节奏表示。CLI 接受 `5m` 或 `1h` 这样的简单预设�
 
 定时任务还可以把每次运行的结果（包括失败的运行）投递到某个[插件](/docs/plugins/reference#outbound-channels)注册的出站渠道，例如团队聊天。在应用中，于定时任务的 **Deliver results** 字段按名称选择目的地；定时任务列表会显示结果投递到哪里，以及最近一次结果是否已送达。在 CLI 中，请参见[投递结果](/docs/schedules-cli#deliver-results)。
 
+应用里把定时任务叫作 **自动化**。主机支持自动化时，表单还可以选择每次运行做什么（起一个 AI 会话，或运行一个[插件动作](/docs/plugins/reference)，参数表单按插件的 schema 生成）、是否按 cron 时钟运行（只靠事件触发时关掉）、带 `key=value` 匹配条件的事件触发，以及每小时最多几次事件运行（默认 20 次，超过就暂停）。**项目来源** 列出项目 `paseo.json` 里定义的自动化；启用需要直连主机，见[项目来源](/docs/schedules-cli#project-sources)。
+
 两者都按你设定的节奏运行。如果想由外部事件（比如一条评论或一次提及）启动 Agent，请参见 [Hub](/docs/hub)。
 
 ## 用途 {#what-its-for}
@@ -46,7 +48,7 @@ cron 是标准的节奏表示。CLI 接受 `5m` 或 `1h` 这样的简单预设�
 
 ## 创建方式 {#ways-to-create-one}
 
-- **在应用中**：打开定时任务视图，设置 Agent、cron 节奏、仓库和提示词来创建。这是创建和管理定时任务的主要方式。
+- **在应用中**：打开自动化视图，设置 Agent、cron 节奏、仓库和提示词来创建。这是创建和管理定时任务的主要方式。
 - **[在聊天中](/docs/schedules-chat)**：在聊天中告诉 Agent，它会为你创建定时任务。
 - **[通过 CLI](/docs/schedules-cli)**：`paseo schedule create`，适用于无界面的机器和脚本。
 - **[通过 MCP](/docs/mcp)**：Agent 以编程方式创建和管理定时任务。
@@ -55,6 +57,6 @@ cron 是标准的节奏表示。CLI 接受 `5m` 或 `1h` 这样的简单预设�
 
 新建 Agent 的定时任务每次运行都会创建一个工作区。**Archive on finish** 默认开启：运行结束时，Paseo 会归档该工作区及其 Agent。使用 worktree 隔离时，最后一个使用该 worktree 的活跃工作区被归档后，归档还会删除这个 worktree。
 
-要保留运行结果，在应用的定时任务视图中打开该定时任务，关闭 **Archive on finish** 并保存。Paseo 会让每次运行的工作区和 Agent 保持活跃，直到你手动归档；在创建 Agent 之前就失败的运行仍会被清理。该选项同样适用于本地隔离；归档本地工作区不会删除项目目录。
+要保留运行结果，在应用的自动化视图中打开该定时任务，关闭 **Archive on finish** 并保存。Paseo 会让每次运行的工作区和 Agent 保持活跃，直到你手动归档；在创建 Agent 之前就失败的运行仍会被清理。该选项同样适用于本地隔离；归档本地工作区不会删除项目目录。
 
 存储的选项是 `target.config.archiveOnFinish`，一个布尔值，省略时默认为 `true`。CLI 和 MCP 的定时任务工具不提供这个选项；请在应用中修改。heartbeat 使用已有的 Agent，没有这个选项。

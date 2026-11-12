@@ -21,6 +21,8 @@ Cron is the canonical cadence. The CLI accepts simple presets such as `5m` or `1
 
 A schedule can also deliver each run's result, including failures, to an outbound channel that a [plugin](/docs/plugins/reference#outbound-channels) registers, for example a team chat. In the app, pick the destination by name in the schedule's **Deliver results** field; the schedule list shows where results go and whether the last one arrived. From the CLI, see [Deliver results](/docs/schedules-cli#deliver-results).
 
+The app calls schedules **Automations**. On a host with automation support, the form also picks what each run does (an AI session or a [plugin action](/docs/plugins/reference), whose parameters come from the plugin's schema), whether a cron clock runs it at all (turn it off for event-only automations), event triggers with `key=value` matches, and how many event runs per hour are allowed before the automation pauses (default 20). **Project sources** lists automations defined in project `paseo.json` files; enabling one needs a direct connection to the host, see [Project sources](/docs/schedules-cli#project-sources).
+
 Both run on a cadence you set. To start an agent from an external event instead — a comment, a mention — see [Hub](/docs/hub).
 
 ## What it's for
@@ -48,7 +50,7 @@ A schedule that runs in a workspace behaves differently from one that creates it
 
 ## Ways to create one
 
-- **In the app** — open the Schedules view and create one with agent settings, a cron cadence, a repo, and a prompt. This is the main way to create and manage schedules.
+- **In the app** — open the Automations view and create one with agent settings, a cron cadence, a repo, and a prompt. This is the main way to create and manage schedules.
 - **[From chat](/docs/schedules-chat)** — ask the agent in a chat and it sets the schedule up for you.
 - **[From the CLI](/docs/schedules-cli)** — `paseo schedule create`, for headless boxes and scripts.
 - **[Over MCP](/docs/mcp)** — agents create and manage schedules programmatically.
@@ -57,6 +59,6 @@ A schedule that runs in a workspace behaves differently from one that creates it
 
 Each new-agent schedule run creates a workspace. **Archive on finish** is on by default: when the run ends, Paseo archives that workspace and its agent. With worktree isolation, archiving also removes the worktree after its last active workspace is archived.
 
-To keep runs available, open the schedule in the app's Schedules view, turn off **Archive on finish**, and save. Paseo keeps each run's workspace and agent active until you archive them; runs that fail before creating an agent are still cleaned up. This option also applies to local isolation; archiving a local workspace leaves the project directory in place.
+To keep runs available, open the schedule in the app's Automations view, turn off **Archive on finish**, and save. Paseo keeps each run's workspace and agent active until you archive them; runs that fail before creating an agent are still cleaned up. This option also applies to local isolation; archiving a local workspace leaves the project directory in place.
 
 The stored option is `target.config.archiveOnFinish`, a boolean that defaults to `true` when omitted. The CLI and MCP schedule tools do not expose this option; use the app to change it. Heartbeats use an existing agent and do not have this option.

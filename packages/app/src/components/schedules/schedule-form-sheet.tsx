@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -46,7 +47,25 @@ import {
   type FormPreferences,
 } from "@/hooks/use-form-preferences";
 import { useScheduleMutations } from "@/hooks/use-schedule-mutations";
-import { useScheduleDeliverySupported } from "@/hooks/use-schedule-channels";
+import {
+  useAutomationCatalog,
+  useAutomationsSupported,
+  useScheduleDeliverySupported,
+} from "@/hooks/use-schedule-channels";
+import {
+  AutomationRunFields,
+  AutomationTriggerFields,
+  type AutomationFieldsProps,
+} from "./automation-fields";
+import {
+  AGENT_RUN,
+  buildAutomationSubmit,
+  initAutomationForm,
+  parseActionIssues,
+  defaultParams,
+  reduceAutomationForm,
+  type AutomationFormState,
+} from "@/schedules/automation-form";
 import { useAggregatedAgents } from "@/hooks/use-aggregated-agents";
 import { useProjects } from "@/hooks/use-projects";
 import { useHostRuntimeConnectionStatuses, useHosts } from "@/runtime/host-runtime";
@@ -65,6 +84,7 @@ import {
 } from "@/schedules/schedule-form-model";
 import { validateCron } from "@/utils/schedule-format";
 import { toErrorMessage } from "@/utils/error-messages";
+import { isWeb } from "@/constants/platform";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
 
 export interface ScheduleFormSheetProps {
@@ -100,9 +120,38 @@ function requireCronCadence(
   cadence: Extract<ScheduleCadence, { type: "cron" }> | undefined,
 ): Extract<ScheduleCadence, { type: "cron" }> {
   if (!cadence) {
-    throw new Error("Choose a cron cadence before creating this schedule");
+    throw new Error("Choose a cron cadence before creating this automation");
   }
   return cadence;
+}
+
+function isTargetReady(state: ScheduleFormState, isAction: boolean): boolean {
+  return isAction
+    ? state.prompt.trim().length > 0 && state.selectedServerId !== null
+    : state.canSubmit;
+}
+
+/** Trigger, clock, rate limit and action fields for hosts that store automations. */
+function automationFields(input: {
+  automations: boolean;
+  automation: AutomationFormState;
+  initialAutomation: AutomationFormState;
+  state: ScheduleFormState;
+}) {
+  if (!input.automations) return { create: {}, update: {}, target: null };
+  const built = buildAutomationSubmit({
+    state: input.automation,
+    initial: input.initialAutomation,
+    cronCadence: input.state.submitCadence,
+    currentCron: input.state.cadence,
+  });
+  const cadence = built.cadence ? { cadence: built.cadence } : {};
+  const rate = built.eventRateLimit ? { eventRateLimit: built.eventRateLimit } : {};
+  return {
+    target: built.target,
+    create: { ...cadence, triggers: built.triggers, ...rate },
+    update: { ...cadence, triggers: built.triggers, eventRateLimit: built.eventRateLimit },
+  };
 }
 
 function resolveCreateServerId(input: {
@@ -337,15 +386,49 @@ function OpenScheduleFormSheet({
   const providerSnapshot = useScheduleFormProviderSnapshot(model, state);
   const { agents } = useAggregatedAgents({ includeArchived: true });
   const mutationServerId = state.selectedServerId ?? serverId ?? "";
+  const { t } = useTranslation();
   const { createSchedule, updateSchedule, isCreating, isUpdating } = useScheduleMutations({
     serverId: mutationServerId,
   });
   const deliverySupported = useScheduleDeliverySupported(mutationServerId || null);
+  const automations = useAutomationsSupported(mutationServerId || null);
+  const { catalog } = useAutomationCatalog(mutationServerId || null, automations);
+  const [initialAutomation] = useState(() => initAutomationForm(schedule));
+  const [draft, dispatchAutomation] = useReducer(reduceAutomationForm, initialAutomation);
+  const automation = useMemo(
+    () => ({
+      ...draft,
+      params: defaultParams(
+        draft.params,
+        catalog?.actions.find((action) => action.id === draft.run)?.params,
+        mode === "create",
+      ),
+    }),
+    [draft, catalog, mode],
+  );
+  const [actionIssues, setActionIssues] = useState<Record<string, string> | null>(null);
+  const isAction = automations && automation.run !== AGENT_RUN;
+  const automationProps = useMemo(
+    () =>
+      automations
+        ? {
+            state: automation,
+            dispatch: dispatchAutomation,
+            actions: catalog?.actions ?? [],
+            sources: catalog?.sources ?? [],
+            locked: mode === "edit",
+            issues: actionIssues,
+          }
+        : null,
+    [actionIssues, automation, automations, catalog, mode],
+  );
 
   const isSubmitting = isCreating || isUpdating;
   const cadenceError =
-    state.cadence.type === "cron" ? validateCron(state.cadence.expression) : null;
-  const canSubmit = state.canSubmit && cadenceError === null && !isSubmitting;
+    state.cadence.type === "cron" && (!automations || automation.clock === "cron")
+      ? validateCron(state.cadence.expression)
+      : null;
+  const canSubmit = isTargetReady(state, isAction) && cadenceError === null && !isSubmitting;
   const agentTargetLabel = useMemo(() => {
     if (!schedule || schedule.target.type !== "agent") {
       return null;
@@ -404,12 +487,14 @@ function OpenScheduleFormSheet({
 
     await persistPreferences();
     const maxRuns = parseMaxRuns(state.maxRuns);
+    const extra = automationFields({ automations, automation, initialAutomation, state });
     if (mode === "edit" && schedule) {
       await updateSchedule({
         id: schedule.id,
         name: state.name.trim() || null,
         prompt: state.prompt.trim(),
         ...(state.submitCadence ? { cadence: state.submitCadence } : {}),
+        ...extra.update,
         newAgentConfig: {
           provider,
           model: state.selectedModel || null,
@@ -448,13 +533,55 @@ function OpenScheduleFormSheet({
       },
       ...(maxRuns != null ? { maxRuns } : {}),
       ...createDeliveryForSubmit(deliverySupported, state.delivery),
+      ...extra.create,
     });
     return true;
   }, [
+    automation,
+    automations,
     createSchedule,
     deliverySupported,
+    initialAutomation,
     mode,
     persistPreferences,
+    schedule,
+    state,
+    updateSchedule,
+  ]);
+
+  const submitAction = useCallback(async (): Promise<boolean> => {
+    const extra = automationFields({ automations, automation, initialAutomation, state });
+    const target = extra.target;
+    if (!target) return false;
+    const maxRuns = parseMaxRuns(state.maxRuns);
+    const common = { name: state.name.trim() || null, prompt: state.prompt.trim(), maxRuns };
+    if (mode === "edit" && schedule) {
+      await updateSchedule({
+        id: schedule.id,
+        ...common,
+        ...extra.update,
+        actionConfig: { action: target.action, params: target.params },
+        ...editDeliveryForSubmit(deliverySupported, state.delivery),
+      });
+      return true;
+    }
+    await createSchedule({
+      ...common,
+      name: common.name ?? undefined,
+      maxRuns: maxRuns ?? undefined,
+      cadence: requireCronCadence(state.submitCadence),
+      target,
+      ...createDeliveryForSubmit(deliverySupported, state.delivery),
+      ...extra.create,
+    });
+    return true;
+  }, [
+    automation,
+    automations,
+    createSchedule,
+    deliverySupported,
+    initialAutomation,
+    mode,
     schedule,
     state,
     updateSchedule,
@@ -465,16 +592,30 @@ function OpenScheduleFormSheet({
       return;
     }
     model.setSubmitError(null);
+    setActionIssues(null);
     try {
-      const submitted =
-        state.targetKind === "agent" ? await submitAgentTarget() : await submitNewAgent();
+      let submitted: boolean;
+      if (state.targetKind === "agent") submitted = await submitAgentTarget();
+      else submitted = isAction ? await submitAction() : await submitNewAgent();
       if (submitted) {
         onClose();
       }
     } catch (error) {
-      model.setSubmitError(toErrorMessage(error));
+      const message = toErrorMessage(error);
+      const issues = isAction ? parseActionIssues(message) : null;
+      setActionIssues(issues);
+      model.setSubmitError(issues && Object.keys(issues).length ? null : message);
     }
-  }, [canSubmit, model, onClose, state.targetKind, submitAgentTarget, submitNewAgent]);
+  }, [
+    canSubmit,
+    isAction,
+    model,
+    onClose,
+    state.targetKind,
+    submitAction,
+    submitAgentTarget,
+    submitNewAgent,
+  ]);
 
   const handleSubmitPress = useCallback(() => {
     void handleSubmit();
@@ -482,10 +623,10 @@ function OpenScheduleFormSheet({
 
   const header = useMemo<SheetHeader>(() => {
     if (mode !== "edit") {
-      return { title: "New schedule" };
+      return { title: t("automation.new") };
     }
-    return { title: schedule?.target.type === "agent" ? "Edit heartbeat" : "Edit schedule" };
-  }, [mode, schedule?.target.type]);
+    return { title: schedule?.target.type === "agent" ? "Edit heartbeat" : "Edit automation" };
+  }, [mode, schedule?.target.type, t]);
 
   const footer = useMemo(
     () => (
@@ -506,7 +647,7 @@ function OpenScheduleFormSheet({
           loading={isSubmitting}
           testID="schedule-form-submit"
         >
-          {mode === "edit" ? "Save changes" : "Create schedule"}
+          {mode === "edit" ? "Save changes" : "Create automation"}
         </Button>
       </View>
     ),
@@ -531,6 +672,7 @@ function OpenScheduleFormSheet({
         cadenceError={cadenceError}
         mutationServerId={mutationServerId}
         deliverySupported={deliverySupported}
+        automation={automationProps}
       />
     </AdaptiveModalSheet>
   );
@@ -545,6 +687,7 @@ interface ScheduleFormFieldsProps {
   cadenceError: string | null;
   mutationServerId: string;
   deliverySupported: boolean;
+  automation: AutomationFieldsProps | null;
 }
 
 function ScheduleFormFields({
@@ -556,17 +699,54 @@ function ScheduleFormFields({
   cadenceError,
   mutationServerId,
   deliverySupported,
+  automation,
 }: ScheduleFormFieldsProps): ReactElement {
+  const [promptHeight, setPromptHeight] = useState(96);
+  const promptStyle = useMemo(
+    () => [styles.multilineInput, isWeb && { height: promptHeight }],
+    [promptHeight],
+  );
+  const measurePrompt = useCallback((event: { nativeEvent: object }) => {
+    if (!isWeb) return;
+    const input = (event.nativeEvent as { target: HTMLTextAreaElement }).target;
+    const padding =
+      (input.parentElement?.getBoundingClientRect().height ?? input.clientHeight) -
+      input.clientHeight;
+    const { flex, height } = input.style;
+    input.style.flex = "none";
+    input.style.height = "0px";
+    const contentHeight = input.scrollHeight + padding;
+    input.style.flex = flex;
+    input.style.height = height;
+    setPromptHeight(Math.max(96, Math.min(360, contentHeight)));
+  }, []);
+  // A plugin action needs only the host, so the agent fields stay hidden.
+  const hostOnly = automation !== null && automation.state.run !== AGENT_RUN;
+  const targetState = useMemo(
+    () =>
+      hostOnly
+        ? {
+            ...state,
+            disclosure: Object.fromEntries(
+              Object.keys(state.disclosure).map((key) => [key, false]),
+            ) as unknown as ScheduleFormState["disclosure"],
+          }
+        : state,
+    [hostOnly, state],
+  );
+  const cadenceEditor = (
+    <CadenceEditor
+      value={state.cadence}
+      onChange={model.setCadence}
+      error={cadenceError ?? undefined}
+      size={controlSize}
+    />
+  );
   if (state.targetKind === "agent") {
     return (
       <>
         <ScheduleAgentTargetField label={agentTargetLabel} size={controlSize} />
-        <CadenceEditor
-          value={state.cadence}
-          onChange={model.setCadence}
-          error={cadenceError ?? undefined}
-          size={controlSize}
-        />
+        {cadenceEditor}
         {state.submitError ? <Text style={styles.submitError}>{state.submitError}</Text> : null}
       </>
     );
@@ -578,7 +758,7 @@ function ScheduleFormFields({
         <FormTextInput
           size={controlSize}
           testID="schedule-name-input"
-          accessibilityLabel="Schedule name"
+          accessibilityLabel="Automation name"
           initialValue={state.name}
           onChangeText={model.setName}
           placeholder="Optional"
@@ -595,28 +775,34 @@ function ScheduleFormFields({
           initialValue={state.prompt}
           onChangeText={model.setPrompt}
           placeholder="What should the agent do each run?"
-          style={styles.multilineInput}
+          style={promptStyle}
+          onChange={isWeb ? measurePrompt : undefined}
+          onFocus={isWeb ? measurePrompt : undefined}
+          onLayout={isWeb ? measurePrompt : undefined}
           multiline
           numberOfLines={4}
           textAlignVertical="top"
         />
       </Field>
 
+      {automation ? <AutomationRunFields {...automation} size={controlSize} /> : null}
+
       <ScheduleTargetFields
         model={model}
-        state={state}
+        state={targetState}
         providerSnapshot={providerSnapshot}
         agentTargetLabel={null}
         controlSize={controlSize}
         mutationServerId={mutationServerId}
       />
 
-      <CadenceEditor
-        value={state.cadence}
-        onChange={model.setCadence}
-        error={cadenceError ?? undefined}
-        size={controlSize}
-      />
+      {automation ? (
+        <AutomationTriggerFields {...automation} size={controlSize}>
+          {cadenceEditor}
+        </AutomationTriggerFields>
+      ) : (
+        cadenceEditor
+      )}
 
       <Field label="Max runs">
         <FormTextInput

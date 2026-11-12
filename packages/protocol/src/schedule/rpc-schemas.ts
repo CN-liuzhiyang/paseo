@@ -50,6 +50,7 @@ export const ScheduleCreateRequestSchema = z.object({
   runOnCreate: z.boolean().optional(),
   delivery: ScheduleDeliverySchema.optional(),
   triggers: z.array(AutomationTriggerSchema).optional(),
+  eventRateLimit: StoredScheduleSchema.shape.eventRateLimit,
 });
 
 export const ScheduleListRequestSchema = z.object({
@@ -119,6 +120,7 @@ export const ScheduleUpdateRequestSchema = z.object({
   cadence: ScheduleCadenceSchema.optional(),
   triggers: z.array(AutomationTriggerSchema).optional(),
   actionConfig: ActionConfigSchema.optional(),
+  eventRateLimit: z.number().int().positive().max(1000).nullable().optional(),
   newAgentConfig: ScheduleUpdateNewAgentConfigSchema.optional(),
   maxRuns: z.number().int().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),

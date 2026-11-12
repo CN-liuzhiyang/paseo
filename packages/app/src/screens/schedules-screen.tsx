@@ -8,13 +8,16 @@ import {
 } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useIsFocused } from "expo-router/react-navigation";
-import { CalendarClock, Plus } from "lucide-react-native";
+import { CalendarClock, FolderGit2, Plus } from "lucide-react-native";
+import { useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native-unistyles";
 import { MenuHeader } from "@/components/headers/menu-header";
 import { ExternalLink } from "@/components/ui/external-link";
 import { HostFilter } from "@/components/hosts/host-filter";
 import { ALL_HOSTS_OPTION_ID } from "@/components/hosts/host-picker";
 import { ScheduleFormSheet } from "@/components/schedules/schedule-form-sheet";
+import { AutomationSourcesSheet } from "@/components/schedules/automation-sources";
+import { useSessionStore } from "@/stores/session-store";
 import { SchedulesTable, type ScheduleRowView } from "@/components/schedules/schedules-table";
 import { Button } from "@/components/ui/button";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
@@ -99,6 +102,21 @@ function SchedulesScreenContent(): ReactElement {
   }, [hosts, runtime, runtimeVersion]);
 
   const [form, setForm] = useState<FormState>({ mode: "closed" });
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const openSources = useCallback(() => setSourcesOpen(true), []);
+  const closeSources = useCallback(() => setSourcesOpen(false), []);
+  // COMPAT(automations): fork-only until upstream lands its own shape.
+  const sourceHostIds = useSessionStore((state) =>
+    hosts
+      .filter((host) => state.sessions[host.serverId]?.serverInfo?.features?.automationSources)
+      .map((host) => host.serverId)
+      .join(" "),
+  );
+  const sourceHosts = useMemo(
+    () => hosts.filter((host) => sourceHostIds.split(" ").includes(host.serverId)),
+    [hosts, sourceHostIds],
+  );
+  const { t } = useTranslation();
   const [selectedHost, setSelectedHost] = useState(ALL_HOSTS_OPTION_ID);
   const [statusFilter, setStatusFilter] = useState<ScheduleBucket>("runnable");
 
@@ -191,7 +209,7 @@ function SchedulesScreenContent(): ReactElement {
 
   return (
     <View style={styles.container}>
-      <MenuHeader title="Schedules" />
+      <MenuHeader title={t("sidebar.sections.schedules")} />
       <SchedulesScreenBody
         rows={visibleRows}
         loadState={loadState}
@@ -206,7 +224,9 @@ function SchedulesScreenContent(): ReactElement {
         onRetry={refetch}
         onCreate={openCreate}
         onEdit={openEdit}
+        onOpenSources={sourceHosts.length > 0 ? openSources : undefined}
       />
+      <AutomationSourcesSheet visible={sourcesOpen} onClose={closeSources} hosts={sourceHosts} />
       <ScheduleFormSheet
         serverId={form.mode === "edit" ? form.serverId : undefined}
         visible={form.mode === "create" || form.mode === "edit"}
@@ -232,6 +252,7 @@ function SchedulesScreenBody({
   onRetry,
   onCreate,
   onEdit,
+  onOpenSources,
 }: {
   rows: ScheduleRowView[];
   loadState: AggregateLoadState<AggregatedSchedule>;
@@ -246,7 +267,9 @@ function SchedulesScreenBody({
   onRetry: () => void;
   onCreate: () => void;
   onEdit: (schedule: AggregatedSchedule) => void;
+  onOpenSources?: () => void;
 }): ReactElement {
+  const { t } = useTranslation();
   const bodyState = resolveSchedulesScreenBodyState({ loadState, showLoadError });
 
   if (bodyState.kind === "loading") {
@@ -260,7 +283,7 @@ function SchedulesScreenBody({
   if (bodyState.kind === "load-error") {
     return (
       <View style={styles.centered}>
-        <Text style={styles.message}>Unable to load schedules</Text>
+        <Text style={styles.message}>Unable to load automations</Text>
         <Button variant="ghost" onPress={onRetry} testID="schedules-retry">
           Try again
         </Button>
@@ -273,6 +296,7 @@ function SchedulesScreenBody({
       <View style={styles.centered}>
         {hostErrors.length > 0 ? <ScheduleHostErrorsBanner errors={hostErrors} /> : null}
         <SchedulesEmptyState onCreate={onCreate} testID="schedules-empty" />
+        <SourcesButton onPress={onOpenSources} />
       </View>
     );
   }
@@ -309,9 +333,12 @@ function SchedulesScreenBody({
             testID="schedules-status-filter"
           />
         </View>
-        <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-new">
-          New schedule
-        </Button>
+        <View style={styles.filterRowControls}>
+          <SourcesButton onPress={onOpenSources} />
+          <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-new">
+            {t("automation.new")}
+          </Button>
+        </View>
       </View>
       <ScrollView
         style={styles.scroll}
@@ -327,6 +354,21 @@ function SchedulesScreenBody({
   );
 }
 
+function SourcesButton({ onPress }: { onPress?: () => void }): ReactElement | null {
+  const { t } = useTranslation();
+  if (!onPress) return null;
+  return (
+    <Button
+      variant="ghost"
+      leftIcon={FolderGit2}
+      onPress={onPress}
+      testID="automation-sources-open"
+    >
+      {t("automation.sourcesTitle")}
+    </Button>
+  );
+}
+
 function SchedulesEmptyState({
   onCreate,
   testID,
@@ -334,16 +376,17 @@ function SchedulesEmptyState({
   onCreate: () => void;
   testID?: string;
 }): ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.emptyState} testID={testID}>
       <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
       <View style={styles.emptyTextStack}>
-        <Text style={styles.emptyTitle}>No active schedules</Text>
-        <Text style={styles.emptyDescription}>Schedules run agents on a cadence.</Text>
+        <Text style={styles.emptyTitle}>No active automations</Text>
+        <Text style={styles.emptyDescription}>{t("automation.emptyDescription")}</Text>
         <ExternalLink href="https://paseo.sh/docs/schedules" label="See docs" />
       </View>
       <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-empty-new">
-        New schedule
+        {t("automation.new")}
       </Button>
     </View>
   );
@@ -354,7 +397,7 @@ function SchedulesEndedEmptyState(): ReactElement {
     <View style={styles.filterEmpty}>
       <View style={styles.endedEmptyState}>
         <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
-        <Text style={styles.emptyTitle}>No ended schedules</Text>
+        <Text style={styles.emptyTitle}>No ended automations</Text>
       </View>
     </View>
   );
@@ -366,7 +409,7 @@ function ScheduleHostErrorsBanner({ errors }: { errors: ScheduleHostError[] }): 
       <View style={styles.errorsBanner} testID="schedules-host-errors">
         {errors.map((error) => (
           <Text key={error.serverId} style={styles.errorsBannerText}>
-            {`${error.serverName}: Could not load schedules`}
+            {`${error.serverName}: Could not load automations`}
           </Text>
         ))}
       </View>

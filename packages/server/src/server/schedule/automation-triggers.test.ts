@@ -264,9 +264,14 @@ test("coalesces busy events into the latest pending event and drains it once", a
   expect(service.triggered).toHaveLength(1);
 });
 
-test("automatically pauses after twenty event runs in an hour", async () => {
+test.each([
+  [undefined, 20, false],
+  [3, 3, false],
+  [3, 2, true],
+])("event limit %s with %s recent event runs starts: %s", async (limit, runs, starts) => {
   const record = service.schedules[0];
-  record.runs = Array.from({ length: 20 }, (_, index) => ({
+  record.eventRateLimit = limit;
+  record.runs = Array.from({ length: runs }, (_, index) => ({
     id: String(index),
     scheduledFor: now.toISOString(),
     startedAt: now.toISOString(),
@@ -277,8 +282,8 @@ test("automatically pauses after twenty event runs in an hour", async () => {
     agentId: null,
     trigger: { type: "event", source: "demo", event: "ping", eventId: String(index), depth: 1 },
   }));
-  expect((await emit("limit")).started).toEqual([]);
-  expect(record).toMatchObject({ status: "paused", pauseReason: "rate-limit" });
+  expect((await emit("limit")).started).toEqual(starts ? ["test"] : []);
+  expect(record.pauseReason).toBe(starts ? undefined : "rate-limit");
 });
 
 test("cannot trigger its own run and limits cross-automation causal depth", async () => {

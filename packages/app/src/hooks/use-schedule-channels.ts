@@ -53,3 +53,33 @@ export function useScheduleChannels(input: {
     error: query.error ? toErrorMessage(query.error) : null,
   };
 }
+
+/** True when the host stores triggers and plugin actions. */
+export function useAutomationsSupported(serverId: string | null | undefined): boolean {
+  // COMPAT(automations): fork-only until upstream lands its own shape.
+  return useSessionStore((state) =>
+    serverId ? state.sessions[serverId]?.serverInfo?.features?.automations === true : false,
+  );
+}
+
+/** Plugin actions and event sources the host offers, for the automation form. */
+export function useAutomationCatalog(serverId: string | null | undefined, enabled: boolean) {
+  const id = serverId ?? "";
+  const query = useFetchQuery({
+    queryKey: ["automation-catalog", id] as const,
+    queryFn: async () => {
+      const client = useSessionStore.getState().sessions[id]?.client ?? null;
+      if (!client) throw new Error(i18n.t("workspace.terminal.hostDisconnected"));
+      const [actions, triggers] = await Promise.all([
+        client.scheduleActions(),
+        client.scheduleTriggers(),
+      ]);
+      if (actions.error || triggers.error) throw new Error(actions.error ?? triggers.error ?? "");
+      return { actions: actions.actions, sources: triggers.triggers };
+    },
+    enabled: enabled && id.length > 0,
+    dataShape: "value",
+    staleTimeMs: 30_000,
+  });
+  return { catalog: query.data, error: query.error ? toErrorMessage(query.error) : null };
+}

@@ -29,7 +29,7 @@ export async function runLsCommand(
       schema: scheduleSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_LIST_FAILED", "list schedules", error);
+    throw toScheduleCommandError("SCHEDULE_LIST_FAILED", "list automations", error);
   } finally {
     await client.close().catch(() => {});
   }

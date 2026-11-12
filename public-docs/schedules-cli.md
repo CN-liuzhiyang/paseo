@@ -24,7 +24,7 @@ Changed definitions pause until reapproved; show displays current/approved defin
 
 `paseo automation` aliases the same command tree as `paseo schedule`. A host must
 advertise `features.automations` for these new flags; an older host is rejected.
-The app displays these definitions read-only. Existing agent schedules keep their editor.
+The app edits these too, except triggers of an unknown type and project-source automations, which it shows read-only.
 
 ```bash
 paseo automation actions --json
