@@ -296,6 +296,7 @@ function SchedulesScreenBody({
       <View style={styles.centered}>
         {hostErrors.length > 0 ? <ScheduleHostErrorsBanner errors={hostErrors} /> : null}
         <SchedulesEmptyState onCreate={onCreate} testID="schedules-empty" />
+        <SourcesButton onPress={onOpenSources} />
       </View>
     );
   }
@@ -333,16 +334,7 @@ function SchedulesScreenBody({
           />
         </View>
         <View style={styles.filterRowControls}>
-          {onOpenSources ? (
-            <Button
-              variant="ghost"
-              leftIcon={FolderGit2}
-              onPress={onOpenSources}
-              testID="automation-sources-open"
-            >
-              {t("automation.sourcesTitle")}
-            </Button>
-          ) : null}
+          <SourcesButton onPress={onOpenSources} />
           <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-new">
             {t("automation.new")}
           </Button>
@@ -359,6 +351,21 @@ function SchedulesScreenBody({
         {schedulesContent}
       </ScrollView>
     </View>
+  );
+}
+
+function SourcesButton({ onPress }: { onPress?: () => void }): ReactElement | null {
+  const { t } = useTranslation();
+  if (!onPress) return null;
+  return (
+    <Button
+      variant="ghost"
+      leftIcon={FolderGit2}
+      onPress={onPress}
+      testID="automation-sources-open"
+    >
+      {t("automation.sourcesTitle")}
+    </Button>
   );
 }
 
