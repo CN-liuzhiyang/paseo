@@ -522,6 +522,7 @@ export class ScheduleService {
     const nextRunAt = firstRunAt(input.cadence, now, runOnCreate);
     return {
       ...(input.triggers ? { triggers: input.triggers } : {}),
+      ...(input.eventRateLimit ? { eventRateLimit: input.eventRateLimit } : {}),
       ...(input.delivery ? { delivery: normalizeDelivery(input.delivery) } : {}),
       name: fields.name,
       prompt: fields.prompt,
@@ -720,6 +721,8 @@ export class ScheduleService {
       const now = this.now();
       let updated: StoredSchedule = schedule;
       if (input.triggers !== undefined) updated = { ...updated, triggers: input.triggers };
+      if (input.eventRateLimit !== undefined)
+        updated = { ...updated, eventRateLimit: input.eventRateLimit ?? undefined };
       if (action) updated = { ...updated, target: action.target };
 
       if (input.prompt !== undefined) {

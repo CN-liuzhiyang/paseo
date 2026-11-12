@@ -12,6 +12,7 @@ export function projectAutomation(
     source: _source,
     pauseReason: _reason,
     eventRateLimitRunOffset: _offset,
+    eventRateLimit: _limit,
     ...legacy
   } = schedule;
   return { ...legacy, runs: projectAutomationRuns(schedule.runs, false) };

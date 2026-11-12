@@ -208,6 +208,8 @@ export const StoredScheduleSchema = z.object({
   lastDelivery: ScheduleLastDeliverySchema.optional(),
   triggers: z.array(AutomationTriggerSchema).optional(),
   pauseReason: z.string().optional(),
+  // Event runs per hour before the automation pauses itself; absent means the default of 20.
+  eventRateLimit: z.number().int().positive().max(1000).optional(),
   // Resume counts only newly appended runs, even if their timestamps match older runs.
   eventRateLimitRunOffset: z.number().int().nonnegative().optional(),
   source: ProjectSourceRefSchema.optional(),
@@ -241,6 +243,7 @@ export interface CreateScheduleInput {
   runOnCreate?: boolean | null;
   delivery?: ScheduleDelivery | null;
   triggers?: AutomationTrigger[];
+  eventRateLimit?: number;
 }
 
 export interface UpdateScheduleNewAgentConfig {
@@ -263,6 +266,8 @@ export interface UpdateScheduleInput {
   triggers?: AutomationTrigger[];
   actionConfig?: ActionConfig;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
+  /** `null` restores the default event rate limit. */
+  eventRateLimit?: number | null;
   maxRuns?: number | null;
   expiresAt?: string | null;
   /** `null` clears the delivery target. */

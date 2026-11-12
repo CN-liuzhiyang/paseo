@@ -126,6 +126,7 @@ export class ScheduleSession {
         runOnCreate: request.runOnCreate,
         delivery: request.delivery,
         triggers: request.triggers,
+        eventRateLimit: request.eventRateLimit,
       });
       this.host.emit({
         type: "schedule/create/response",
@@ -317,6 +318,7 @@ export class ScheduleSession {
         id: request.scheduleId,
         triggers: request.triggers,
         actionConfig: request.actionConfig,
+        eventRateLimit: request.eventRateLimit,
         ...(request.name !== undefined ? { name: request.name } : {}),
         ...(request.prompt !== undefined ? { prompt: request.prompt } : {}),
         ...(request.cadence !== undefined ? { cadence: request.cadence } : {}),

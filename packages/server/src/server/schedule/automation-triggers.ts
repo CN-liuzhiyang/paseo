@@ -171,7 +171,7 @@ export class AutomationTriggers {
     const count = schedule.runs
       .slice(schedule.eventRateLimitRunOffset ?? 0)
       .filter((run) => run.trigger?.type === "event" && Date.parse(run.startedAt) > hourAgo).length;
-    if (count >= 20) {
+    if (count >= (schedule.eventRateLimit ?? 20)) {
       try {
         await this.options.service.pause(schedule.id, "rate-limit");
       } catch (error) {

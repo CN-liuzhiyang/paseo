@@ -902,6 +902,7 @@ export interface CreateScheduleOptions {
   name?: string | null;
   cadence: ScheduleCadence;
   triggers?: AutomationTrigger[];
+  eventRateLimit?: number;
   target:
     | Extract<ScheduleTarget, { type: "action" }>
     | {
@@ -957,6 +958,7 @@ export interface UpdateScheduleOptions {
   cadence?: ScheduleCadence;
   triggers?: AutomationTrigger[];
   actionConfig?: ActionConfig;
+  eventRateLimit?: number | null;
   newAgentConfig?: UpdateScheduleNewAgentConfig;
   maxRuns?: number | null;
   expiresAt?: string | null;
@@ -6669,6 +6671,7 @@ export class DaemonClient {
         cadence: options.cadence,
         triggers: options.triggers,
         target: options.target,
+        eventRateLimit: options.eventRateLimit,
         ...(options.name ? { name: options.name } : {}),
         ...(typeof options.maxRuns === "number" ? { maxRuns: options.maxRuns } : {}),
         ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
@@ -6838,6 +6841,7 @@ export class DaemonClient {
         scheduleId: options.id,
         triggers: options.triggers,
         actionConfig: options.actionConfig,
+        eventRateLimit: options.eventRateLimit,
         ...(options.name !== undefined ? { name: options.name } : {}),
         ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
         ...(options.cadence !== undefined ? { cadence: options.cadence } : {}),

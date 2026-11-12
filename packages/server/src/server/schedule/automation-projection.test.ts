@@ -23,6 +23,7 @@ const OldScheduleSchema = StoredScheduleSchema.omit({
   triggers: true,
   pauseReason: true,
   eventRateLimitRunOffset: true,
+  eventRateLimit: true,
   source: true,
 })
   .extend({
@@ -154,6 +155,7 @@ test("ScheduleSession projects every response for a session without automations 
       ...current,
       pauseReason: "rate-limit",
       eventRateLimitRunOffset: 0,
+      eventRateLimit: 5,
       source: { kind: "project", projectKey: "project", automationId: "test", fingerprint: "fp" },
       runs: [
         {
@@ -231,7 +233,7 @@ test("ScheduleSession projects every response for a session without automations 
           );
     }
     expect(JSON.stringify(messages)).not.toMatch(
-      /"(?:triggers|source|pauseReason|eventRateLimitRunOffset|trigger)":/,
+      /"(?:triggers|source|pauseReason|eventRateLimit\w*|trigger)":/,
     );
     await session.handleScheduleInspectRequest({
       type: "schedule/inspect",
