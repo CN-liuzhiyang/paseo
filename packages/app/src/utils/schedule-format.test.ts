@@ -73,7 +73,7 @@ describe("schedule title helpers", () => {
   });
 
   it("labels engine records by product meaning", () => {
-    expect(scheduleProductName(createSchedule({ targetType: "new-agent" }))).toBe("Schedule");
+    expect(scheduleProductName(createSchedule({ targetType: "new-agent" }))).toBe("Automation");
     expect(scheduleProductName(createSchedule({ targetType: "agent" }))).toBe("Heartbeat");
   });
 
@@ -88,7 +88,7 @@ describe("schedule title helpers", () => {
       resolveScheduleTitle(createSchedule({ name: " ", title: " ", prompt: "\nPrompt line" })),
     ).toBe("Prompt line");
     expect(resolveScheduleTitle(createSchedule({ name: " ", title: " ", prompt: "\n  " }))).toBe(
-      "Untitled schedule",
+      "Untitled automation",
     );
   });
 });

@@ -16,18 +16,16 @@ import { runTriggersCommand } from "./triggers.js";
 import { runChannelsCommand } from "./channels.js";
 
 export function createScheduleCommand(): Command {
-  const schedule = new Command("schedule")
-    .alias("automation")
-    .description("Manage recurring schedules");
+  const schedule = new Command("schedule").alias("automation").description("Manage automations");
 
   schedule.addCommand(createSourceCommand());
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("create")
-      .description("Create a schedule")
+      .description("Create an automation")
       .option("--action <id>", "Plugin action to execute")
-      .argument("<prompt>", "Prompt to run on the schedule")
+      .argument("<prompt>", "Prompt to run on the automation")
       .option(
         "--on <source:event[,k=v...]>",
         "Event trigger (repeatable)",
@@ -43,8 +41,8 @@ export function createScheduleCommand(): Command {
       .option("--every <duration>", "Cron-compatible cadence preset (for example: 5m, 1h)")
       .option("--cron <expr>", "Cron cadence expression")
       .option("--timezone <iana>", "IANA time zone for cron cadence (default: UTC)")
-      .option("--name <name>", "Optional schedule name")
-      .addOption(new Option("--target <target>", "Legacy schedule target").hideHelp())
+      .option("--name <name>", "Optional automation name")
+      .addOption(new Option("--target <target>", "Legacy automation target").hideHelp())
       .option(
         "--provider <provider>",
         "Agent provider, or provider/model (e.g. codex or codex/gpt-5.4)",
@@ -64,14 +62,14 @@ export function createScheduleCommand(): Command {
       )
       .option("--run-now", "Fire one immediate run on creation")
       .option("--max-runs <n>", "Maximum number of runs")
-      .option("--expires-in <duration>", "Time to live for the schedule")
+      .option("--expires-in <duration>", "Time to live for the automation")
       .option(
         "--deliver <channel:to>",
         "Send each run's result to a plugin channel (for example: chat:general)",
       ),
   ).action(withOutput(runCreateCommand));
 
-  addJsonAndDaemonHostOptions(schedule.command("ls").description("List schedules")).action(
+  addJsonAndDaemonHostOptions(schedule.command("ls").description("List automations")).action(
     withOutput(runLsCommand),
   );
 
@@ -82,43 +80,49 @@ export function createScheduleCommand(): Command {
   ).action(withOutput(runChannelsCommand));
 
   addJsonAndDaemonHostOptions(
-    schedule.command("inspect").description("Inspect a schedule").argument("<id>", "Schedule ID"),
+    schedule
+      .command("inspect")
+      .description("Inspect an automation")
+      .argument("<id>", "Automation ID"),
   ).action(withOutput(runInspectCommand));
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("logs")
-      .description("Show recent schedule run logs")
-      .argument("<id>", "Schedule ID"),
+      .description("Show recent automation run logs")
+      .argument("<id>", "Automation ID"),
   ).action(withOutput(runLogsCommand));
 
   addJsonAndDaemonHostOptions(
-    schedule.command("pause").description("Pause a schedule").argument("<id>", "Schedule ID"),
+    schedule.command("pause").description("Pause an automation").argument("<id>", "Automation ID"),
   ).action(withOutput(runPauseCommand));
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("resume")
-      .description("Resume a paused schedule")
-      .argument("<id>", "Schedule ID"),
+      .description("Resume a paused automation")
+      .argument("<id>", "Automation ID"),
   ).action(withOutput(runResumeCommand));
 
   addJsonAndDaemonHostOptions(
-    schedule.command("delete").description("Delete a schedule").argument("<id>", "Schedule ID"),
+    schedule
+      .command("delete")
+      .description("Delete an automation")
+      .argument("<id>", "Automation ID"),
   ).action(withOutput(runDeleteCommand));
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("run-once")
-      .description("Manually trigger a single run of a schedule without affecting cadence")
+      .description("Manually trigger a single run of an automation without affecting cadence")
       .option("--event-json <json>", "Test event (recorded as manual, bypasses deduplication)")
-      .argument("<id>", "Schedule ID"),
+      .argument("<id>", "Automation ID"),
   ).action(withOutput(runRunOnceCommand));
 
   addJsonAndDaemonHostOptions(
     schedule
       .command("update")
-      .description("Update an existing schedule in place")
+      .description("Update an existing automation in place")
       .option("--clear-on", "Clear all event triggers")
       .option("--no-clock", "Remove the clock trigger")
       .option(
@@ -133,12 +137,12 @@ export function createScheduleCommand(): Command {
       )
       .option("--params-json <json>", "Replace action parameters as a JSON object")
       .option("--timeout <duration>", "Action timeout (maximum 60m)")
-      .argument("<id>", "Schedule ID")
+      .argument("<id>", "Automation ID")
       .option("--every <duration>", "Cron-compatible cadence preset (for example: 5m, 1h)")
       .option("--cron <expr>", "Switch to cron cadence expression")
       .option("--timezone <iana>", "IANA time zone for cron cadence (requires --cron)")
-      .option("--name <name>", "Rename the schedule (empty string clears the name)")
-      .option("--prompt <text>", "Replace the schedule prompt")
+      .option("--name <name>", "Rename the automation (empty string clears the name)")
+      .option("--prompt <text>", "Replace the automation prompt")
       .option(
         "--provider <provider>",
         "New agent provider, or provider/model (only for new-agent target)",
@@ -153,7 +157,7 @@ export function createScheduleCommand(): Command {
       )
       .option("--max-runs <n>", "Set or change maximum number of runs")
       .option("--no-max-runs", "Clear the max-runs limit")
-      .option("--expires-in <duration>", "Set or change time to live for the schedule")
+      .option("--expires-in <duration>", "Set or change time to live for the automation")
       .option("--no-expires-in", "Clear the expiration")
       .option("--deliver <channel:to>", "Send each run's result to a plugin channel")
       .option("--no-deliver", "Stop delivering run results"),

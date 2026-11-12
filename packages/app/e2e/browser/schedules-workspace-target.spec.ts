@@ -200,9 +200,9 @@ test.describe("Schedules workspace target", () => {
 
     await page.getByTestId("schedule-cadence-preset-trigger").click();
     await page.getByTestId("schedule-cadence-preset-every-hour").click();
-    await page.getByLabel("Schedule name").fill(scheduleName);
+    await page.getByLabel("Automation name").fill(scheduleName);
     await page.getByLabel("Prompt").fill("Summarize the week.");
-    await page.getByRole("button", { name: "Create schedule" }).click();
+    await page.getByRole("button", { name: "Create automation" }).click();
     await expect(page.getByTestId("schedule-form-sheet")).toHaveCount(0, { timeout: 30_000 });
 
     const schedule = await findSchedule(project, scheduleName);

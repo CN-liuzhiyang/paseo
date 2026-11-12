@@ -21,7 +21,7 @@ nav: CLI
 ## 插件自动化 {#plugin-automations}
 
 `paseo automation` 是 `paseo schedule` 同一命令树的别名。新参数要求宿主声明
-features.automations，旧宿主会被明确拒绝。App 对这些定义只读显示；原有代理计划仍可编辑。
+features.automations，旧宿主会被明确拒绝。App 也能编辑它们；未知类型的触发和项目来源生成的自动化只读显示。
 
 ```bash
 paseo automation actions --json

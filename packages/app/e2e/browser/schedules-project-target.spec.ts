@@ -182,7 +182,7 @@ test.describe("Schedules project target", () => {
     await gotoAppShell(page);
     await waitForSidebarHydration(page);
 
-    await page.getByRole("button", { name: "Schedules" }).click();
+    await page.getByRole("button", { name: "Automations" }).click();
     await expect(page).toHaveURL(/\/schedules$/);
     await expect(page).not.toHaveURL(/\/h\//);
     await expect(page.getByTestId("schedules-empty")).toBeVisible();
@@ -227,9 +227,9 @@ test.describe("Schedules project target", () => {
     await expect(page.getByTestId("schedule-cadence-preset-trigger")).toContainText("Daily 9:00");
     await expect(page.getByTestId("cadence-cron-expression")).toHaveValue("0 9 * * *");
 
-    await page.getByLabel("Schedule name").fill(scheduleName);
+    await page.getByLabel("Automation name").fill(scheduleName);
     await page.getByLabel("Prompt").fill("Summarize the project status.");
-    await page.getByRole("button", { name: "Create schedule" }).click();
+    await page.getByRole("button", { name: "Create automation" }).click();
 
     await expect(page.getByTestId("schedule-form-sheet")).toHaveCount(0, { timeout: 30_000 });
     await expectScheduleCreatedForProject({
@@ -335,9 +335,9 @@ test.describe("Schedules project target", () => {
     await expect(thinkingTrigger).toHaveCount(0);
     await expect(modeTrigger).toHaveCount(0);
 
-    await page.getByLabel("Schedule name").fill(`Cross host model ${Date.now()}`);
+    await page.getByLabel("Automation name").fill(`Cross host model ${Date.now()}`);
     await page.getByLabel("Prompt").fill("Run on the secondary host project.");
-    await expect(page.getByRole("button", { name: "Create schedule" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Create automation" })).toBeDisabled();
   });
 
   test("creates and edits schedule isolation and archive cleanup knobs", async ({ page }) => {
@@ -364,11 +364,11 @@ test.describe("Schedules project target", () => {
     await page.getByTestId("schedule-isolation-worktree").click();
     await expect(page.getByTestId("schedule-isolation-trigger")).toContainText("Worktree");
     await page.getByTestId("schedule-archive-on-finish-switch").click();
-    await page.getByLabel("Schedule name").fill(scheduleName);
+    await page.getByLabel("Automation name").fill(scheduleName);
     await page.getByLabel("Prompt").fill("Run with custom workspace cleanup.");
     await page.getByTestId("schedule-cadence-preset-trigger").click();
     await page.getByTestId("schedule-cadence-preset-every-hour").click();
-    await page.getByRole("button", { name: "Create schedule" }).click();
+    await page.getByRole("button", { name: "Create automation" }).click();
 
     await expect(page.getByTestId("schedule-form-sheet")).toHaveCount(0, { timeout: 30_000 });
     await expectScheduleKnobs({

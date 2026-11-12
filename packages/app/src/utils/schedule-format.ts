@@ -29,11 +29,10 @@ export function isNewAgentSchedule(schedule: ScheduleSummary): boolean {
 }
 
 export function isReadOnlyAutomation(schedule: ScheduleSummary): boolean {
+  // Unknown trigger types and repository-defined automations keep the read-only view.
   return (
-    schedule.target.type === "action" ||
-    schedule.cadence.type === "none" ||
-    (schedule.triggers?.length ?? 0) > 0 ||
-    schedule.source !== undefined
+    schedule.source !== undefined ||
+    (schedule.triggers ?? []).some((trigger) => trigger.type !== "event")
   );
 }
 
@@ -46,8 +45,8 @@ export function formatScheduleTriggers(schedule: ScheduleSummary): string {
   return parts.join(" · ") || "—";
 }
 
-export function scheduleProductName(schedule: ScheduleSummary): "Heartbeat" | "Schedule" {
-  return schedule.target.type === "agent" ? "Heartbeat" : "Schedule";
+export function scheduleProductName(schedule: ScheduleSummary): "Heartbeat" | "Automation" {
+  return schedule.target.type === "agent" ? "Heartbeat" : "Automation";
 }
 
 export function resolveScheduleTitle(schedule: ScheduleSummary): string {
