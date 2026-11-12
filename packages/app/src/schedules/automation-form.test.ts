@@ -48,15 +48,7 @@ test("trigger edits parse match values and keep untouched cron cadences out of t
 });
 
 test("switching the clock sends the chosen cadence", () => {
-  expect(
-    submit([
-      { type: "clock", clock: "every" },
-      { type: "every", text: "15" },
-    ]).cadence,
-  ).toEqual({
-    type: "every",
-    everyMs: 900_000,
-  });
+  expect(submit([{ type: "clock", clock: "none" }]).cadence).toEqual({ type: "none" });
   expect(submit([{ type: "clock", clock: "cron" }], actionSchedule).cadence).toEqual(cron);
 });
 
@@ -64,12 +56,6 @@ test("invalid input is reported instead of submitted", () => {
   expect(() => submit([{ type: "addTrigger" }])).toThrow();
   const pair = { type: "trigger", index: 0, patch: { id: "demo:ping", match: "nope" } } as const;
   expect(() => submit([{ type: "addTrigger" }, pair])).toThrow();
-  expect(() =>
-    submit([
-      { type: "clock", clock: "every" },
-      { type: "every", text: "1.5" },
-    ]),
-  ).toThrow();
   expect(() => submit([{ type: "rateLimit", text: "0" }])).toThrow();
   const json = { type: "json", path: "input", text: "{" } as const;
   expect(() => submit([{ type: "run", run: "flow.run" }, json])).toThrow();

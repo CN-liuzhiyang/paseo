@@ -7,7 +7,6 @@ import type { ScheduleAction, ScheduleTriggerSource } from "@getpaseo/protocol/s
 import { Button } from "@/components/ui/button";
 import type { ControlSize } from "@/components/ui/control-geometry";
 import { Field, FormTextInput } from "@/components/ui/form-field";
-import { SegmentedControl } from "@/components/ui/segmented-control";
 import { SelectField, type SelectFieldOption } from "@/components/ui/select-field";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -15,7 +14,6 @@ import {
   objectFields,
   type AutomationFormAction,
   type AutomationFormState,
-  type ClockKind,
   type EventTriggerDraft,
   type ParamField,
 } from "@/schedules/automation-form";
@@ -35,9 +33,6 @@ interface CommonProps {
   dispatch: Dispatch<AutomationFormAction>;
   size: ControlSize;
 }
-
-// "Cron" is the same word in every language.
-const CLOCK_LABEL_KEYS = { every: "automation.clockEvery", none: "automation.clockNone" } as const;
 
 /** What each run does: an AI session, or a plugin action with a form built from its schema. */
 export function AutomationRunFields({
@@ -258,15 +253,6 @@ export function AutomationTriggerFields({
   children,
 }: CommonProps & { sources: ScheduleTriggerSource[]; children: ReactNode }): ReactElement {
   const { t } = useTranslation();
-  const clockOptions = useMemo(
-    () =>
-      (["cron", "every", "none"] as const).map((value) => ({
-        value,
-        label: value === "cron" ? "Cron" : t(CLOCK_LABEL_KEYS[value]),
-        testID: `automation-clock-${value}`,
-      })),
-    [t],
-  );
   const eventOptions = useMemo<EventOption[]>(
     () =>
       sources.flatMap((source) =>
@@ -281,11 +267,11 @@ export function AutomationTriggerFields({
       ),
     [sources],
   );
+  // Off means no clock: only events or a manual run start it.
   const handleClock = useCallback(
-    (clock: ClockKind) => dispatch({ type: "clock", clock }),
+    (on: boolean) => dispatch({ type: "clock", clock: on ? "cron" : "none" }),
     [dispatch],
   );
-  const handleEvery = useCallback((text: string) => dispatch({ type: "every", text }), [dispatch]);
   const handleRate = useCallback(
     (text: string) => dispatch({ type: "rateLimit", text }),
     [dispatch],
@@ -294,26 +280,14 @@ export function AutomationTriggerFields({
   return (
     <>
       <Field label={t("automation.clock")}>
-        <SegmentedControl<ClockKind>
-          options={clockOptions}
-          value={state.clock}
+        <Switch
+          value={state.clock === "cron"}
           onValueChange={handleClock}
-          size={size}
+          accessibilityLabel={t("automation.clock")}
           testID="automation-clock"
         />
       </Field>
       {state.clock === "cron" ? children : null}
-      {state.clock === "every" ? (
-        <Field label={t("automation.everyMinutes")}>
-          <FormTextInput
-            size={size}
-            accessibilityLabel={t("automation.everyMinutes")}
-            initialValue={state.everyMinutes}
-            onChangeText={handleEvery}
-            keyboardType="number-pad"
-          />
-        </Field>
-      ) : null}
       <Field label={t("automation.triggers")}>
         <View style={styles.stack}>
           {state.triggers.map((trigger, index) => (

@@ -9,7 +9,8 @@ import { i18n } from "@/i18n/i18next";
 /** The run choice that starts an AI session; every other value is a plugin action ID. */
 export const AGENT_RUN = "agent";
 
-export type ClockKind = "cron" | "every" | "none";
+/** Upstream keeps cron as the one clock; interval presets are cron expressions. */
+export type ClockKind = "cron" | "none";
 
 export interface EventTriggerDraft {
   /** Stable row identity while drafts are added and removed. */
@@ -26,7 +27,6 @@ export interface AutomationFormState {
   /** Raw text of JSON fields, keyed by dotted path, parsed at submit. */
   jsonText: Record<string, string>;
   clock: ClockKind;
-  everyMinutes: string;
   triggers: EventTriggerDraft[];
   rateLimit: string;
 }
@@ -36,7 +36,6 @@ export type AutomationFormAction =
   | { type: "param"; path: string[]; value: unknown }
   | { type: "json"; path: string; text: string }
   | { type: "clock"; clock: ClockKind }
-  | { type: "every"; text: string }
   | { type: "addTrigger" }
   | { type: "trigger"; index: number; patch: Partial<EventTriggerDraft> }
   | { type: "removeTrigger"; index: number }
@@ -58,8 +57,7 @@ export function initAutomationForm(schedule: ScheduleSummary | undefined): Autom
     run: target?.type === "action" ? target.action : AGENT_RUN,
     params: target?.type === "action" ? { ...target.params } : {},
     jsonText: {},
-    clock: cadence?.type === "every" || cadence?.type === "none" ? cadence.type : "cron",
-    everyMinutes: cadence?.type === "every" ? String(Math.round(cadence.everyMs / 60_000)) : "60",
+    clock: cadence?.type === "none" ? "none" : "cron",
     triggers: (schedule?.triggers ?? []).map((trigger) => ({
       key: nextDraftKey++,
       id: `${String(trigger.source)}:${String(trigger.event)}`,
@@ -104,8 +102,6 @@ export function reduceAutomationForm(
       return { ...state, jsonText: { ...state.jsonText, [action.path]: action.text } };
     case "clock":
       return { ...state, clock: action.clock };
-    case "every":
-      return { ...state, everyMinutes: action.text };
     case "addTrigger":
       return {
         ...state,
@@ -219,10 +215,6 @@ export function buildTriggers(drafts: EventTriggerDraft[]): AutomationTrigger[] 
   });
 }
 
-function positiveError(field: "automation.everyMinutes" | "automation.rateLimit"): Error {
-  return new Error(i18n.t("automation.positiveError", { field: i18n.t(field) }));
-}
-
 export interface AutomationSubmit {
   /** Undefined leaves an edited automation's clock alone. */
   cadence: ScheduleCadence | undefined;
@@ -241,16 +233,12 @@ export function buildAutomationSubmit(input: {
   const { state } = input;
   let cadence: ScheduleCadence | undefined;
   if (state.clock === "none") cadence = { type: "none" };
-  else if (state.clock === "every") {
-    const minutes = Number(state.everyMinutes);
-    if (!Number.isInteger(minutes) || minutes < 1) throw positiveError("automation.everyMinutes");
-    cadence = { type: "every", everyMs: minutes * 60_000 };
-  } else
+  else
     cadence = input.cronCadence ?? (input.initial.clock === "cron" ? undefined : input.currentCron);
   const rate = state.rateLimit.trim();
   const eventRateLimit = rate ? Number(rate) : null;
   if (eventRateLimit !== null && (!Number.isInteger(eventRateLimit) || eventRateLimit < 1))
-    throw positiveError("automation.rateLimit");
+    throw new Error(i18n.t("automation.positiveError", { field: i18n.t("automation.rateLimit") }));
   return {
     cadence,
     triggers: buildTriggers(state.triggers),

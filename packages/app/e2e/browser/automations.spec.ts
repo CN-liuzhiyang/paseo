@@ -30,7 +30,7 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     await page.getByLabel("Prompt").fill("Echo the event.");
     await page.getByTestId("automation-run-trigger").click();
     await page.getByTestId("automation-run-demo.echo").click();
-    await page.getByTestId("automation-clock-none").click();
+    await page.getByTestId("automation-clock").click();
     await page.getByTestId("automation-trigger-add").click();
     await page.getByTestId("automation-trigger-event-0").click();
     await page.getByTestId("automation-event-demo-ping").click();

@@ -19,7 +19,7 @@ cron 是标准的节奏表示。CLI 接受 `5m` 或 `1h` 这样的简单预设�
 
 定时任务还可以把每次运行的结果（包括失败的运行）投递到某个[插件](/docs/plugins/reference#outbound-channels)注册的出站渠道，例如团队聊天。在应用中，于定时任务的 **Deliver results** 字段按名称选择目的地；定时任务列表会显示结果投递到哪里，以及最近一次结果是否已送达。在 CLI 中，请参见[投递结果](/docs/schedules-cli#deliver-results)。
 
-应用里把定时任务叫作 **自动化**。主机支持自动化时，表单还可以选择每次运行做什么（起一个 AI 会话，或运行一个[插件动作](/docs/plugins/reference)，参数表单按插件的 schema 生成）、时钟（cron、间隔或无）、带 `key=value` 匹配条件的事件触发，以及每小时最多几次事件运行（默认 20 次，超过就暂停）。**项目来源** 列出项目 `paseo.json` 里定义的自动化；启用需要直连主机，见[项目来源](/docs/schedules-cli#project-sources)。
+应用里把定时任务叫作 **自动化**。主机支持自动化时，表单还可以选择每次运行做什么（起一个 AI 会话，或运行一个[插件动作](/docs/plugins/reference)，参数表单按插件的 schema 生成）、是否按 cron 时钟运行（只靠事件触发时关掉）、带 `key=value` 匹配条件的事件触发，以及每小时最多几次事件运行（默认 20 次，超过就暂停）。**项目来源** 列出项目 `paseo.json` 里定义的自动化；启用需要直连主机，见[项目来源](/docs/schedules-cli#project-sources)。
 
 两者都按你设定的节奏运行。如果想由外部事件（比如一条评论或一次提及）启动 Agent，请参见 [Hub](/docs/hub)。
 
