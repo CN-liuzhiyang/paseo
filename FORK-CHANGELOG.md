@@ -9,6 +9,26 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.6.2 - 2026-11-12
+
+Same upstream base as 1.6.1 (v0.15.3).
+
+### Added
+
+- Schedules are now Automations in the app and the CLI (`paseo automation` is an alias of `paseo schedule`). An automation can have several triggers: a clock (cron) and any number of event triggers registered by plugins, with optional match conditions and a per-automation hourly run limit (default 20, over the limit it pauses).
+- An automation can run a plugin-registered action instead of starting an AI session. Plugins register actions and event sources with `registerAction` and `registerTriggerSource`; there is no generic run-command action. `paseo automation actions` lists them.
+- Project sources: a repository's committed `paseo.json` can define automations. They are off by default; `paseo automation source ls|scan|show|enable|disable` (and the Project sources page in the app) review them. Enabling needs a direct local connection and the definition's fingerprint, and a changed definition pauses until it is approved again.
+- The automation form edits triggers, plugin action parameters (generated from the action's JSON Schema) and shows plugin validation errors per field. The prompt box grows with its content on desktop.
+- Translations for the new text in all nine app languages.
+
+### Changed
+
+- Clients that do not advertise the `automations` capability do not see action or event-only automations; older daemons simply hide the new form sections.
+
+### Notes
+
+- Before returning to a daemon without automation support, back up your schedules: older daemons skip files that use actions or no clock, and can drop event trigger fields when they rewrite other schedules. See `localdocs/releases.md`, "Automation downgrade".
+
 ## 1.6.1 - 2026-11-10
 
 Same upstream base as 1.6.0 (v0.15.3).
