@@ -32,9 +32,10 @@ const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 // budget when upstream absorbs this patch. Current delta: 169 files / 10881 lines. Raised to 180/11400
 // on 2026-11-10 for `paseo workspace label`, a generic CLI for the daemon's existing workspace labels.
 // Raised to 210/16000 on 2026-11-11 for approved automation extension points: plugin actions,
-// event sources and project definitions (stages 1a/1b). Reduce when upstream absorbs them.
-const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 210);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 16000);
+// event sources and project definitions (stages 1a/1b). Raised to 218/17800 on 2026-11-12 for
+// stage 2: app forms for triggers, plugin actions and project sources. Reduce when upstream absorbs them.
+const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 218);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 17800);
 
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are
