@@ -71,7 +71,7 @@ export async function runUpdateCommand(
     if (input.newAgentConfig) await requireNewAgentSchedule(client, id);
     const payload = await client.scheduleUpdate(input);
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? `Failed to update schedule: ${id}`);
+      throw new Error(payload.error ?? `Failed to update automation: ${id}`);
     }
     return {
       type: "list",
@@ -79,7 +79,7 @@ export async function runUpdateCommand(
       schema: createScheduleInspectSchema(payload.schedule),
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_UPDATE_FAILED", "update schedule", error);
+    throw toScheduleCommandError("SCHEDULE_UPDATE_FAILED", "update automation", error);
   } finally {
     await client.close().catch(() => {});
   }

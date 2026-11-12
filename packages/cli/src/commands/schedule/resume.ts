@@ -20,7 +20,7 @@ export async function runResumeCommand(
     await requireVisibleSchedule(client, id);
     const payload = await client.scheduleResume({ id });
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? `Failed to resume schedule: ${id}`);
+      throw new Error(payload.error ?? `Failed to resume automation: ${id}`);
     }
     return {
       type: "single",
@@ -28,7 +28,7 @@ export async function runResumeCommand(
       schema: scheduleSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_RESUME_FAILED", "resume schedule", error);
+    throw toScheduleCommandError("SCHEDULE_RESUME_FAILED", "resume automation", error);
   } finally {
     await client.close().catch(() => {});
   }

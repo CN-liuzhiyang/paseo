@@ -250,7 +250,8 @@ describe("schedule workspace support", () => {
       expect(() => requireScheduleWorkspaceSupport(clientWithFeatures(features))).toThrow(
         expect.objectContaining({
           code: "DAEMON_UPDATE_REQUIRED",
-          message: "This host does not support running schedules in a workspace. Update the host.",
+          message:
+            "This host does not support running automations in a workspace. Update the host.",
         }),
       );
     },

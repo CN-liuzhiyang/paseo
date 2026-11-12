@@ -26,7 +26,7 @@ export async function runLogsCommand(
       schema: scheduleLogSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_LOGS_FAILED", "read schedule logs", error);
+    throw toScheduleCommandError("SCHEDULE_LOGS_FAILED", "read automation logs", error);
   } finally {
     await client.close().catch(() => {});
   }

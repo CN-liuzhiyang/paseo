@@ -20,7 +20,7 @@ export async function runPauseCommand(
     await requireVisibleSchedule(client, id);
     const payload = await client.schedulePause({ id });
     if (payload.error || !payload.schedule) {
-      throw new Error(payload.error ?? `Failed to pause schedule: ${id}`);
+      throw new Error(payload.error ?? `Failed to pause automation: ${id}`);
     }
     return {
       type: "single",
@@ -28,7 +28,7 @@ export async function runPauseCommand(
       schema: scheduleSchema,
     };
   } catch (error) {
-    throw toScheduleCommandError("SCHEDULE_PAUSE_FAILED", "pause schedule", error);
+    throw toScheduleCommandError("SCHEDULE_PAUSE_FAILED", "pause automation", error);
   } finally {
     await client.close().catch(() => {});
   }

@@ -151,7 +151,7 @@ export function requireScheduleWorkspaceSupport(client: ScheduleDaemonClient): v
   if (client.getLastServerInfoMessage()?.features?.scheduleWorkspaceTarget !== true) {
     throw {
       code: "DAEMON_UPDATE_REQUIRED",
-      message: "This host does not support running schedules in a workspace. Update the host.",
+      message: "This host does not support running automations in a workspace. Update the host.",
     } satisfies CommandError;
   }
 }
@@ -173,7 +173,7 @@ export async function requireNewAgentSchedule(
 ): Promise<void> {
   const payload = await client.scheduleInspect({ id });
   if (payload.error || !payload.schedule || payload.schedule.target.type !== "new-agent") {
-    throw new Error(payload.error ?? `Schedule not found: ${id}`);
+    throw new Error(payload.error ?? `Automation not found: ${id}`);
   }
 }
 
@@ -187,7 +187,7 @@ export async function requireVisibleSchedule(
     !payload.schedule ||
     (payload.schedule.target.type === "agent" && !payload.schedule.triggers?.length)
   )
-    throw new Error(payload.error ?? `Schedule not found: ${id}`);
+    throw new Error(payload.error ?? `Automation not found: ${id}`);
 }
 
 export function formatCadence(cadence: ScheduleCadence): string {
@@ -249,7 +249,7 @@ function resolveScheduleTarget(args: {
     throw {
       code: "INVALID_TARGET",
       message: "--provider/--mode/--thinking/--workspace can only be used with a new-agent target",
-      details: "Use --target new-agent or omit --target to create a new agent schedule",
+      details: "Use --target new-agent or omit --target to create a new agent automation",
     } satisfies CommandError;
   }
 
@@ -294,7 +294,7 @@ export function parseScheduleCreateInput(
   if (!prompt) {
     throw {
       code: "INVALID_PROMPT",
-      message: "Schedule prompt cannot be empty",
+      message: "Automation prompt cannot be empty",
     } satisfies CommandError;
   }
 
@@ -496,7 +496,7 @@ export function parseScheduleUpdateInput(options: ScheduleUpdateOptionsInput): U
   if (!id) {
     throw {
       code: "INVALID_SCHEDULE_ID",
-      message: "Schedule id cannot be empty",
+      message: "Automation id cannot be empty",
     } satisfies CommandError;
   }
 
