@@ -21,10 +21,10 @@ export function canApproveSource(
   connection: string | undefined,
   status: string | undefined,
 ): boolean {
-  return (
-    status === "online" &&
-    ["directTcp", "directSocket", "directPipe", "remoteSsh"].includes(connection ?? "")
+  const direct = ["directTcp", "directSocket", "directPipe", "remoteSsh"].includes(
+    connection ?? "",
   );
+  return status === "online" && direct;
 }
 
 /** Upstream keeps cron as the one clock; interval presets are cron expressions. */
@@ -151,7 +151,6 @@ type JsonSchema = Record<string, unknown>;
 function fieldFor(key: string, schema: JsonSchema, required: boolean): ParamField {
   const label = typeof schema.title === "string" ? schema.title : key;
   const base = { key, label, required };
-  if (!supportedSchema(schema)) return { ...base, kind: "json" };
   if (Array.isArray(schema.enum) && schema.enum.every((value) => typeof value === "string"))
     return {
       ...base,

@@ -18,7 +18,7 @@ export const es: TranslationResources = {
     match: "Coincidencia",
     rateLimit: "Ejecuciones por eventos por hora",
     jsonError: "{{field}}: JSON no válido",
-    matchError: 'La coincidencia "{{pair}}" debe ser clave=valor',
+    emptyDescription: "Las automatizaciones ejecutan agentes o acciones de plugins.",
     eventRequired: "Elige un evento para cada disparador",
     positiveError: "{{field}} debe ser un número entero positivo",
     sourcesTitle: "Orígenes del proyecto",

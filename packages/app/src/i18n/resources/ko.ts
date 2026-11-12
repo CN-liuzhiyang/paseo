@@ -18,7 +18,7 @@ export const ko: TranslationResources = {
     match: "일치 조건",
     rateLimit: "시간당 이벤트 실행 수",
     jsonError: "{{field}}: 잘못된 JSON",
-    matchError: '일치 조건 "{{pair}}"는 key=value 형식이어야 합니다',
+    emptyDescription: "자동화는 에이전트 또는 플러그인 작업을 실행합니다.",
     eventRequired: "모든 트리거에 이벤트를 선택하세요",
     positiveError: "{{field}}은(는) 양의 정수여야 합니다",
     sourcesTitle: "프로젝트 소스",

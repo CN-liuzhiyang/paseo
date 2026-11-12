@@ -18,7 +18,7 @@ export const ptBR: TranslationResources = {
     match: "Correspondência",
     rateLimit: "Execuções por eventos por hora",
     jsonError: "{{field}}: JSON inválido",
-    matchError: 'A correspondência "{{pair}}" deve ser chave=valor',
+    emptyDescription: "Automações executam agentes ou ações de plugins.",
     eventRequired: "Escolha um evento para cada gatilho",
     positiveError: "{{field}} deve ser um número inteiro positivo",
     sourcesTitle: "Origens do projeto",

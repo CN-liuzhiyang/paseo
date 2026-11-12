@@ -382,7 +382,7 @@ function SchedulesEmptyState({
       <CalendarClock size={styles.emptyIcon.width} color={styles.emptyIcon.color} />
       <View style={styles.emptyTextStack}>
         <Text style={styles.emptyTitle}>No active automations</Text>
-        <Text style={styles.emptyDescription}>Automations run agents or plugin actions.</Text>
+        <Text style={styles.emptyDescription}>{t("automation.emptyDescription")}</Text>
         <ExternalLink href="https://paseo.sh/docs/schedules" label="See docs" />
       </View>
       <Button variant="outline" leftIcon={Plus} onPress={onCreate} testID="schedules-empty-new">

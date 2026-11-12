@@ -107,7 +107,6 @@ export function AutomationRunFields({
                   state={state}
                   dispatch={dispatch}
                   size={size}
-                  issues={issues}
                 />
               ))
             ) : (
@@ -133,14 +132,12 @@ function ParamFieldRow({
   state,
   dispatch,
   size,
-  issues,
 }: CommonProps & {
   field: ParamField;
   path: string[];
-  issues: Record<string, string> | null;
 }): ReactElement {
   const { t } = useTranslation();
-  const rest = { state, dispatch, size, issues };
+  const rest = { state, dispatch, size };
   const value = readPath(state.params, path);
   const set = useCallback(
     (next: unknown) => dispatch({ type: "param", path, value: next }),

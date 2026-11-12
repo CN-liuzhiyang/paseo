@@ -15,7 +15,7 @@ export const en = {
     match: "Match",
     rateLimit: "Event runs per hour",
     jsonError: "{{field}}: invalid JSON",
-    matchError: 'Match "{{pair}}" must be key=value',
+    emptyDescription: "Automations run agents or plugin actions.",
     eventRequired: "Choose an event for every trigger",
     positiveError: "{{field}} must be a positive whole number",
     sourcesTitle: "Project sources",

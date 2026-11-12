@@ -18,7 +18,7 @@ export const ja: TranslationResources = {
     match: "一致条件",
     rateLimit: "1 時間あたりのイベント実行数",
     jsonError: "{{field}}: JSON が正しくありません",
-    matchError: "一致条件「{{pair}}」は key=value の形式にしてください",
+    emptyDescription: "自動化でエージェントやプラグインのアクションを実行します。",
     eventRequired: "すべてのトリガーでイベントを選択してください",
     positiveError: "{{field}} は正の整数にしてください",
     sourcesTitle: "プロジェクトのソース",

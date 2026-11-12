@@ -18,7 +18,7 @@ export const zhCN: TranslationResources = {
     match: "匹配",
     rateLimit: "每小时事件运行上限",
     jsonError: "{{field}}：JSON 格式不正确",
-    matchError: "匹配条件「{{pair}}」必须是 key=value",
+    emptyDescription: "自动化运行 AI 会话或插件动作。",
     eventRequired: "每条触发都要选择事件",
     positiveError: "{{field}}必须是正整数",
     sourcesTitle: "项目来源",

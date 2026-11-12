@@ -42,7 +42,29 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     await page.goto(buildSchedulesRoute());
     await page.getByRole("button", { name: "New automation" }).first().click();
     await page.getByLabel("Automation name").fill(name);
-    await page.getByLabel("Prompt").fill("Echo the event.");
+    const prompt = page.getByLabel("Prompt");
+    const shortHeight = await prompt.evaluate((input) => input.clientHeight);
+    await prompt.fill(Array.from({ length: 12 }, (_, i) => `Prompt line ${i + 1}`).join("\n"));
+    await expect
+      .poll(() => prompt.evaluate((input) => input.clientHeight))
+      .toBeGreaterThan(shortHeight + 50);
+    await prompt.fill(Array.from({ length: 80 }, (_, i) => `Prompt line ${i + 1}`).join("\n"));
+    const dimensions = await prompt.evaluate((input) => ({
+      height: input.clientHeight,
+      content: input.scrollHeight,
+    }));
+    expect(dimensions.height).toBeLessThanOrEqual(360);
+    expect(dimensions.content).toBeGreaterThan(dimensions.height);
+    await prompt.evaluate((input) => {
+      input.scrollTop = input.scrollHeight;
+    });
+    expect(await prompt.evaluate((input) => input.scrollTop)).toBeGreaterThan(0);
+    await prompt.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath("05-long-prompt-scrolled.png") });
+    await prompt.fill("Echo the event.");
+    await expect
+      .poll(() => prompt.evaluate((input) => input.clientHeight))
+      .toBeLessThanOrEqual(shortHeight);
     await page.getByTestId("automation-run-trigger").click();
     await page.getByTestId("automation-run-demo.echo").click();
     await page.getByTestId("automation-param-text").fill("stale");

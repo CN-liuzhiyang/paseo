@@ -18,7 +18,7 @@ export const ar: TranslationResources = {
     match: "المطابقة",
     rateLimit: "مرات التشغيل بالأحداث في الساعة",
     jsonError: "{{field}}: JSON غير صالح",
-    matchError: 'يجب أن تكون المطابقة "{{pair}}" بصيغة key=value',
+    emptyDescription: "تشغّل الأتمتة الوكلاء أو إجراءات الإضافات.",
     eventRequired: "اختر حدثًا لكل مشغل",
     positiveError: "يجب أن يكون {{field}} عددًا صحيحًا موجبًا",
     sourcesTitle: "مصادر المشاريع",

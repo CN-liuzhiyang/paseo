@@ -18,7 +18,7 @@ export const ru: TranslationResources = {
     match: "Совпадение",
     rateLimit: "Запусков по событиям в час",
     jsonError: "{{field}}: неверный JSON",
-    matchError: "Совпадение «{{pair}}» должно иметь вид ключ=значение",
+    emptyDescription: "Автоматизации запускают агентов или действия плагинов.",
     eventRequired: "Выберите событие для каждого триггера",
     positiveError: "{{field}}: нужно целое положительное число",
     sourcesTitle: "Источники проектов",

@@ -18,7 +18,7 @@ export const fr: TranslationResources = {
     match: "Correspondance",
     rateLimit: "Exécutions par événement par heure",
     jsonError: "{{field}} : JSON invalide",
-    matchError: "La correspondance « {{pair}} » doit être clé=valeur",
+    emptyDescription: "Les automatisations exécutent des agents ou des actions de plugin.",
     eventRequired: "Choisissez un événement pour chaque déclencheur",
     positiveError: "{{field}} doit être un entier positif",
     sourcesTitle: "Sources du projet",

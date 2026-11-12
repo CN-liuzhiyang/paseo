@@ -84,6 +84,7 @@ import {
 } from "@/schedules/schedule-form-model";
 import { validateCron } from "@/utils/schedule-format";
 import { toErrorMessage } from "@/utils/error-messages";
+import { isWeb } from "@/constants/platform";
 import { getDeviceTimeZone } from "@/utils/device-timezone";
 
 export interface ScheduleFormSheetProps {
@@ -699,6 +700,25 @@ function ScheduleFormFields({
   deliverySupported,
   automation,
 }: ScheduleFormFieldsProps): ReactElement {
+  const [promptHeight, setPromptHeight] = useState(96);
+  const promptStyle = useMemo(
+    () => [styles.multilineInput, { height: promptHeight }],
+    [promptHeight],
+  );
+  const measurePrompt = useCallback((event: { target: unknown }) => {
+    if (!isWeb) return;
+    const input = event.target as HTMLTextAreaElement;
+    const padding =
+      (input.parentElement?.getBoundingClientRect().height ?? input.clientHeight) -
+      input.clientHeight;
+    const { flex, height } = input.style;
+    input.style.flex = "none";
+    input.style.height = "0px";
+    const contentHeight = input.scrollHeight + padding;
+    input.style.flex = flex;
+    input.style.height = height;
+    setPromptHeight(Math.max(96, Math.min(360, contentHeight)));
+  }, []);
   // A plugin action needs only the host, so the agent fields stay hidden.
   const hostOnly = automation !== null && automation.state.run !== AGENT_RUN;
   const targetState = useMemo(
@@ -754,7 +774,9 @@ function ScheduleFormFields({
           initialValue={state.prompt}
           onChangeText={model.setPrompt}
           placeholder="What should the agent do each run?"
-          style={styles.multilineInput}
+          style={promptStyle}
+          onChange={measurePrompt}
+          onFocus={measurePrompt}
           multiline
           numberOfLines={4}
           textAlignVertical="top"
