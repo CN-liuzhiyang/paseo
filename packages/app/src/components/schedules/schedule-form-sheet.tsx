@@ -703,12 +703,12 @@ function ScheduleFormFields({
 }: ScheduleFormFieldsProps): ReactElement {
   const [promptHeight, setPromptHeight] = useState(96);
   const promptStyle = useMemo(
-    () => [styles.multilineInput, { height: promptHeight }],
+    () => [styles.multilineInput, isWeb && { height: promptHeight }],
     [promptHeight],
   );
-  const measurePrompt = useCallback((event: { target: unknown }) => {
+  const measurePrompt = useCallback((event: { nativeEvent: object }) => {
     if (!isWeb) return;
-    const input = event.target as HTMLTextAreaElement;
+    const input = (event.nativeEvent as { target: HTMLTextAreaElement }).target;
     const padding =
       (input.parentElement?.getBoundingClientRect().height ?? input.clientHeight) -
       input.clientHeight;
@@ -776,8 +776,9 @@ function ScheduleFormFields({
           onChangeText={model.setPrompt}
           placeholder="What should the agent do each run?"
           style={promptStyle}
-          onChange={measurePrompt}
-          onFocus={measurePrompt}
+          onChange={isWeb ? measurePrompt : undefined}
+          onFocus={isWeb ? measurePrompt : undefined}
+          onLayout={isWeb ? measurePrompt : undefined}
           multiline
           numberOfLines={4}
           textAlignVertical="top"

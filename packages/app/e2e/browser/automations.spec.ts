@@ -43,12 +43,12 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     await page.getByRole("button", { name: "New automation" }).first().click();
     await page.getByLabel("Automation name").fill(name);
     const prompt = page.getByLabel("Prompt");
-    const shortHeight = await prompt.evaluate((input) => input.clientHeight);
+    const promptHeight = () => prompt.evaluate((input) => input.clientHeight);
+    const shortHeight = await promptHeight();
     await prompt.fill(Array.from({ length: 12 }, (_, i) => `Prompt line ${i + 1}`).join("\n"));
-    await expect
-      .poll(() => prompt.evaluate((input) => input.clientHeight))
-      .toBeGreaterThan(shortHeight + 50);
-    await prompt.fill(Array.from({ length: 80 }, (_, i) => `Prompt line ${i + 1}`).join("\n"));
+    await expect.poll(promptHeight).toBeGreaterThan(shortHeight + 50);
+    const longPrompt = Array.from({ length: 80 }, (_, i) => `Prompt line ${i + 1}`).join("\n");
+    await prompt.fill(longPrompt);
     const dimensions = await prompt.evaluate((input) => ({
       height: input.clientHeight,
       content: input.scrollHeight,
@@ -62,9 +62,7 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     await prompt.scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath("05-long-prompt-scrolled.png") });
     await prompt.fill("Echo the event.");
-    await expect
-      .poll(() => prompt.evaluate((input) => input.clientHeight))
-      .toBeLessThanOrEqual(shortHeight);
+    await expect.poll(promptHeight).toBeLessThanOrEqual(shortHeight);
     await page.getByTestId("automation-run-trigger").click();
     await page.getByTestId("automation-run-demo.echo").click();
     await page.getByTestId("automation-param-text").fill("stale");
@@ -127,6 +125,7 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     await client.scheduleUpdate({
       id: created!.id,
       triggers: retainedTriggers,
+      prompt: longPrompt,
       actionConfig: {
         action: "demo.echo",
         params: { text: "hi", dry: false, count: 7, tags: ["a,b", " c "], "a.b": "original" },
@@ -134,6 +133,7 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
     });
     await page.reload();
     await page.getByTestId(`schedule-row-${created!.id}`).click();
+    await expect.poll(promptHeight).toBeGreaterThan(shortHeight + 50);
     await expect(page.getByTestId("automation-param-a.b")).toHaveValue("original");
     await expect(page.getByRole("textbox", { name: "tags", exact: true })).toHaveValue(
       JSON.stringify(["a,b", " c "], null, 2),
