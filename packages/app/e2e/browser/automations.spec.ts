@@ -3,7 +3,6 @@ import { expect, test } from "../support/fixtures";
 import { gotoAppShell } from "../support/helpers/app";
 import { connectNewWorkspaceDaemonClient } from "../support/helpers/new-workspace";
 import { copyPluginExample } from "../support/helpers/plugin-fixture";
-import { waitForSidebarHydration } from "../support/helpers/workspace-ui";
 import { buildSchedulesRoute } from "../../src/utils/host-routes";
 
 test("creates, edits and pauses an event automation that runs a plugin action", async ({
@@ -25,7 +24,6 @@ test("creates, edits and pauses an event automation that runs a plugin action", 
       .toContain("demo.echo");
 
     await gotoAppShell(page);
-    await waitForSidebarHydration(page);
     await page.goto(buildSchedulesRoute());
     await page.getByRole("button", { name: "New automation" }).first().click();
     await page.getByLabel("Automation name").fill(name);

@@ -219,7 +219,7 @@ export function ScheduleRow({
   const title = resolveScheduleTitle(schedule);
   const productName = scheduleProductName(schedule);
   const badge = stateBadge(state);
-  const canRun = schedule.target.type === "new-agent" && (state === "active" || state === "paused");
+  const canRun = schedule.target.type !== "agent" && (state === "active" || state === "paused");
 
   const rowStyle = useCallback(
     ({ pressed }: PressableStateCallbackType) => [
@@ -348,7 +348,7 @@ function ScheduleExecutionMenuItems({
         onSelect={onResume}
         testID={`schedule-menu-resume-${schedule.id}`}
       >
-        Resume schedule
+        Resume automation
       </DropdownMenuItem>
     );
   } else {
@@ -361,7 +361,7 @@ function ScheduleExecutionMenuItems({
         onSelect={onPause}
         testID={`schedule-menu-pause-${schedule.id}`}
       >
-        Pause schedule
+        Pause automation
       </DropdownMenuItem>
     );
   }
