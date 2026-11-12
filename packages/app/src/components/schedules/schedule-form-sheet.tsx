@@ -401,9 +401,10 @@ function OpenScheduleFormSheet({
       params: defaultParams(
         draft.params,
         catalog?.actions.find((action) => action.id === draft.run)?.params,
+        mode === "create",
       ),
     }),
-    [draft, catalog],
+    [draft, catalog, mode],
   );
   const [actionIssues, setActionIssues] = useState<Record<string, string> | null>(null);
   const isAction = automations && automation.run !== AGENT_RUN;

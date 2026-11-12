@@ -21,10 +21,10 @@ export function canApproveSource(
   connection: string | undefined,
   status: string | undefined,
 ): boolean {
-  const direct = ["directTcp", "directSocket", "directPipe", "remoteSsh"].includes(
-    connection ?? "",
+  return (
+    status === "online" &&
+    ["directTcp", "directSocket", "directPipe", "remoteSsh"].includes(connection ?? "")
   );
-  return status === "online" && direct;
 }
 
 /** Upstream keeps cron as the one clock; interval presets are cron expressions. */
@@ -187,27 +187,25 @@ function supportedSchema(schema: JsonSchema): boolean {
   return ["string", "number", "integer", "boolean"].includes(String(schema.type));
 }
 
-/** Defaults feed both the rendered controls and the submitted params. */
+/** Existing params receive only declared defaults; new forms also seed required fields. */
 export function defaultParams(
   params: Record<string, unknown>,
   schema: JsonSchema = {},
+  create = true,
 ): Record<string, unknown> {
+  if (!params || ![Object.prototype, null].includes(Object.getPrototypeOf(params))) return params;
   const result = { ...params };
   for (const [key, child] of Object.entries(
     (schema.properties ?? {}) as Record<string, JsonSchema>,
   )) {
+    const required = create && (schema.required as string[] | undefined)?.includes(key);
     if (result[key] === undefined) {
       if (child.default !== undefined) result[key] = child.default;
-      else if (child.type === "boolean") result[key] = false;
+      else if (required && child.type === "boolean") result[key] = false;
+      else if (required && child.type === "object") result[key] = {};
     }
-    if (
-      child.type === "object" &&
-      (result[key] !== undefined || (schema.required as string[] | undefined)?.includes(key))
-    )
-      result[key] =
-        result[key] === null
-          ? null
-          : defaultParams((result[key] ?? {}) as Record<string, unknown>, child);
+    if (child.type === "object" && result[key] !== undefined)
+      result[key] = defaultParams(result[key] as Record<string, unknown>, child, create);
     if (result[key] === undefined) delete result[key];
   }
   return result;
@@ -215,16 +213,10 @@ export function defaultParams(
 
 /** Fields for an object schema with named properties; null when the shape is not supported. */
 export function objectFields(schema: JsonSchema): ParamField[] | null {
-  const properties = schema.properties as Record<string, JsonSchema> | undefined;
-  if (
-    !supportedSchema(schema) ||
-    schema.type !== "object" ||
-    !properties ||
-    Object.keys(properties).length === 0
-  )
-    return null;
+  const entries = Object.entries((schema.properties ?? {}) as Record<string, JsonSchema>);
+  if (!supportedSchema(schema) || schema.type !== "object" || entries.length === 0) return null;
   const required = new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []);
-  return Object.entries(properties).map(([key, child]) => fieldFor(key, child, required.has(key)));
+  return entries.map(([key, child]) => fieldFor(key, child, required.has(key)));
 }
 
 /** Params with JSON fields parsed in place. Throws with the field path on invalid JSON. */

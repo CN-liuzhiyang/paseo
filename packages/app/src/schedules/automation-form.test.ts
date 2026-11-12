@@ -27,7 +27,7 @@ function submit(
 ) {
   const initial = initAutomationForm(schedule);
   const draft = actions.reduce(reduceAutomationForm, initial);
-  const state = { ...draft, params: defaultParams(draft.params, schema) };
+  const state = { ...draft, params: defaultParams(draft.params, schema, !schedule) };
   return buildAutomationSubmit({ state, initial, cronCadence: undefined, currentCron: cron });
 }
 
@@ -198,23 +198,29 @@ test.each([
   ).toEqual(params);
 });
 
-test("required booleans and schema defaults enter actual submitted params", () => {
+test.each([undefined, "str", [[1]], null, false, 0])("stored defaults: %j", (o) => {
   const schema = {
     type: "object",
     required: ["dry", "opts"],
     properties: {
       dry: { type: "boolean" },
+      opt: { type: "boolean" },
+      o: { type: "object", properties: { b: { type: "boolean", default: true } } },
       count: { type: "number", default: 7 },
       mode: { type: "string", default: "001" },
       opts: { type: "object", properties: { enabled: { type: "boolean", default: true } } },
     },
   };
-  expect(submit([{ type: "run", run: "demo.echo" }], undefined, schema).target?.params).toEqual({
-    dry: false,
-    count: 7,
-    mode: "001",
-    opts: { enabled: true },
-  });
+  const params = { dry: true, o };
+  const stored = {
+    ...actionSchedule,
+    target: { type: "action", action: "demo.echo", params },
+  } as ScheduleSummary;
+  expect(submit([], stored, schema).target?.params).toEqual({ ...params, count: 7, mode: "001" });
+  const created = { dry: false, count: 7, mode: "001", opts: { enabled: true } };
+  expect(submit([{ type: "run", run: "demo.echo" }], undefined, schema).target?.params).toEqual(
+    created,
+  );
 });
 
 test.each(["enabled", "disabled"])("source %s responses retain other sources", (state) => {
