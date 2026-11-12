@@ -252,7 +252,10 @@ export function parseActionIssues(message: string): Record<string, string> | nul
   const start = message.indexOf("[");
   if (start < 0) return null;
   try {
-    const issues = JSON.parse(message.slice(start)) as { path?: unknown[]; message?: string }[];
+    const issues = JSON.parse(message.slice(start, message.lastIndexOf("]") + 1)) as {
+      path?: unknown[];
+      message?: string;
+    }[];
     if (!Array.isArray(issues) || issues.length === 0) return null;
     const result: Record<string, string> = {};
     for (const issue of issues) result[(issue.path ?? []).join(".")] = issue.message ?? "";

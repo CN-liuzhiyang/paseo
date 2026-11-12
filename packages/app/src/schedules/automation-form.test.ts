@@ -248,6 +248,9 @@ test("plugin validation issues become field errors", () => {
   const message =
     'Invalid params: [{"path":["text"],"message":"Required"},{"path":[],"message":"Bad"}]';
   expect(parseActionIssues(message)).toEqual({ text: "Required", "": "Bad" });
+  expect(
+    parseActionIssues(`${message} requestType=schedule/create code=schedule_request_failed`),
+  ).toEqual({ text: "Required", "": "Bad" });
   expect(parseActionIssues("No running plugin provides action")).toBeNull();
   expect(parseActionIssues("Invalid params: []")).toBeNull();
 });
