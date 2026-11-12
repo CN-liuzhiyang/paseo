@@ -91,14 +91,19 @@ export function AutomationRunFields({
         triggerTestID="automation-run-trigger"
       />
       {state.run === AGENT_RUN ? null : (
-        <Field label={t("automation.params")} error={issues?.[""]} testID="automation-params">
-          <View style={styles.stack}>
+        <Field label={t("automation.params")} testID="automation-params">
+          <View key={state.run} style={styles.stack}>
+            {Object.entries(issues ?? {}).map(([path, message]) => (
+              <Text key={path} style={styles.error}>
+                {path ? `${path}: ${message}` : message}
+              </Text>
+            ))}
             {fields ? (
               fields.map((field) => (
                 <ParamFieldRow
                   key={field.key}
                   field={field}
-                  path={field.key}
+                  path={[field.key]}
                   state={state}
                   dispatch={dispatch}
                   size={size}
@@ -106,7 +111,7 @@ export function AutomationRunFields({
                 />
               ))
             ) : (
-              <JsonInput path="" state={state} dispatch={dispatch} size={size} />
+              <JsonInput path={[]} state={state} dispatch={dispatch} size={size} />
             )}
           </View>
         </Field>
@@ -115,21 +120,11 @@ export function AutomationRunFields({
   );
 }
 
-function readPath(params: Record<string, unknown>, path: string): unknown {
-  return path
-    .split(".")
-    .reduce<unknown>((current, part) => (current as Record<string, unknown>)?.[part], params);
-}
-
-const splitList = (text: string) =>
-  text
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-function displayValue(value: unknown): string {
-  if (Array.isArray(value)) return value.join(", ");
-  return value === undefined ? "" : String(value);
+function readPath(params: Record<string, unknown>, path: string[]): unknown {
+  return path.reduce<unknown>(
+    (current, part) => (current as Record<string, unknown>)?.[part],
+    params,
+  );
 }
 
 function ParamFieldRow({
@@ -141,20 +136,19 @@ function ParamFieldRow({
   issues,
 }: CommonProps & {
   field: ParamField;
-  path: string;
+  path: string[];
   issues: Record<string, string> | null;
 }): ReactElement {
   const { t } = useTranslation();
   const rest = { state, dispatch, size, issues };
   const value = readPath(state.params, path);
   const set = useCallback(
-    (next: unknown) => dispatch({ type: "param", path: path.split("."), value: next }),
+    (next: unknown) => dispatch({ type: "param", path, value: next }),
     [dispatch, path],
   );
   const handleText = useCallback(
     (text: string) => {
       if (field.kind === "number") set(text.trim() === "" ? undefined : Number(text));
-      else if (field.kind === "strings") set(splitList(text));
       else set(text === "" && !field.required ? undefined : text);
     },
     [field, set],
@@ -165,7 +159,7 @@ function ParamFieldRow({
       <Field label={field.label}>
         <View style={styles.nested}>
           {field.fields?.map((child) => (
-            <ParamFieldRow key={child.key} field={child} path={`${path}.${child.key}`} {...rest} />
+            <ParamFieldRow key={child.key} field={child} path={[...path, child.key]} {...rest} />
           ))}
         </View>
       </Field>
@@ -199,25 +193,27 @@ function ParamFieldRow({
       <FormTextInput
         size={size}
         accessibilityLabel={field.label}
-        testID={`automation-param-${path}`}
-        initialValue={displayValue(value)}
+        testID={`automation-param-${path.join(".")}`}
+        initialValue={value === undefined ? "" : String(value)}
         keyboardType={field.kind === "number" ? "numeric" : "default"}
         autoCapitalize="none"
         onChangeText={handleText}
       />
     );
-  return (
-    <Field label={field.required ? `${field.label} *` : field.label} error={issues?.[path]}>
-      {control}
-    </Field>
-  );
+  return <Field label={field.required ? `${field.label} *` : field.label}>{control}</Field>;
 }
 
-function JsonInput({ path, state, dispatch, size }: CommonProps & { path: string }): ReactElement {
+function JsonInput({
+  path,
+  state,
+  dispatch,
+  size,
+}: CommonProps & { path: string[] }): ReactElement {
   const { t } = useTranslation();
-  const value = path ? readPath(state.params, path) : state.params;
+  const value = path.length ? readPath(state.params, path) : state.params;
   const initial =
-    state.jsonText[path] ?? (value === undefined ? "" : JSON.stringify(value, null, 2));
+    state.jsonText[JSON.stringify(path)] ??
+    (value === undefined ? "" : JSON.stringify(value, null, 2));
   const handleText = useCallback(
     (text: string) => dispatch({ type: "json", path, text }),
     [dispatch, path],
@@ -226,8 +222,8 @@ function JsonInput({ path, state, dispatch, size }: CommonProps & { path: string
     <View style={styles.stack}>
       <FormTextInput
         size={size}
-        accessibilityLabel={path || t("automation.params")}
-        testID={`automation-json-${path || "params"}`}
+        accessibilityLabel={path.join(".") || t("automation.params")}
+        testID={`automation-json-${path.join(".") || "params"}`}
         initialValue={initial}
         onChangeText={handleText}
         multiline
@@ -392,7 +388,9 @@ function TriggerRow({
         accessibilityLabel={t("automation.match")}
         testID={`automation-trigger-match-${index}`}
         initialValue={trigger.match}
-        placeholder={(option?.fields ?? ["key"]).map((field) => `${field}=…`).join(", ")}
+        placeholder={JSON.stringify(
+          Object.fromEntries((option?.fields ?? ["key"]).map((field) => [field, "…"])),
+        )}
         onChangeText={handleMatch}
         autoCapitalize="none"
         autoCorrect={false}
@@ -415,4 +413,5 @@ const styles = StyleSheet.create((theme) => ({
   grow: { flex: 1, minWidth: 0 },
   json: { fontFamily: theme.fontFamily.mono, minHeight: 72 },
   hint: { color: theme.colors.foregroundMuted, fontSize: theme.fontSize.sm },
+  error: { color: theme.colors.palette.red[300], fontSize: theme.fontSize.sm },
 }));

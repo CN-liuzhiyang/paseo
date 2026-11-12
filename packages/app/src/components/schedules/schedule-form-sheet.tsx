@@ -62,6 +62,7 @@ import {
   buildAutomationSubmit,
   initAutomationForm,
   parseActionIssues,
+  defaultParams,
   reduceAutomationForm,
   type AutomationFormState,
 } from "@/schedules/automation-form";
@@ -392,7 +393,17 @@ function OpenScheduleFormSheet({
   const automations = useAutomationsSupported(mutationServerId || null);
   const { catalog } = useAutomationCatalog(mutationServerId || null, automations);
   const [initialAutomation] = useState(() => initAutomationForm(schedule));
-  const [automation, dispatchAutomation] = useReducer(reduceAutomationForm, initialAutomation);
+  const [draft, dispatchAutomation] = useReducer(reduceAutomationForm, initialAutomation);
+  const automation = useMemo(
+    () => ({
+      ...draft,
+      params: defaultParams(
+        draft.params,
+        catalog?.actions.find((action) => action.id === draft.run)?.params,
+      ),
+    }),
+    [draft, catalog],
+  );
   const [actionIssues, setActionIssues] = useState<Record<string, string> | null>(null);
   const isAction = automations && automation.run !== AGENT_RUN;
   const automationProps = useMemo(
@@ -591,7 +602,7 @@ function OpenScheduleFormSheet({
       const message = toErrorMessage(error);
       const issues = isAction ? parseActionIssues(message) : null;
       setActionIssues(issues);
-      model.setSubmitError(issues ? null : message);
+      model.setSubmitError(issues && Object.keys(issues).length ? null : message);
     }
   }, [
     canSubmit,

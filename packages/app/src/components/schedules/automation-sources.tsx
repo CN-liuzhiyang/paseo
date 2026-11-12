@@ -10,6 +10,7 @@ import { useFetchQuery } from "@/data/query";
 import { i18n } from "@/i18n/i18next";
 import { useHostRuntimeSnapshot } from "@/runtime/host-runtime";
 import { schedulesQueryBaseKey } from "@/schedules/aggregated-schedules";
+import { canApproveSource, mergeSources } from "@/schedules/automation-form";
 import { useSessionStore } from "@/stores/session-store";
 import { confirmDialog } from "@/utils/confirm-dialog";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -62,10 +63,8 @@ function HostSources({ serverId, label }: { serverId: string; label: string }): 
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const connection = useHostRuntimeSnapshot(serverId)?.activeConnection?.type;
-  // The daemon accepts approvals only from a direct, non-plugin socket; relay and hub-routed
-  // connections are refused there, so the button explains instead of failing.
-  const relayed = connection === "relay" || connection === "routed";
+  const runtime = useHostRuntimeSnapshot(serverId);
+  const relayed = !canApproveSource(runtime?.activeConnection?.type, runtime?.connectionStatus);
   const queryKey = ["automation-sources", serverId] as const;
   const query = useFetchQuery({
     queryKey,
@@ -89,9 +88,11 @@ function HostSources({ serverId, label }: { serverId: string; label: string }): 
       setBusy(true);
       setError(null);
       try {
-        queryClient.setQueryData(
-          ["automation-sources", serverId],
-          await callSources(serverId, operation, source),
+        const updates = await callSources(serverId, operation, source);
+        queryClient.setQueryData<AutomationSource[]>(["automation-sources", serverId], (current) =>
+          operation === "enable" || operation === "disable"
+            ? mergeSources(current, updates)
+            : updates,
         );
         await queryClient.invalidateQueries({ queryKey: schedulesQueryBaseKey });
       } catch (caught) {

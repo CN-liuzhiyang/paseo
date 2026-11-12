@@ -1,5 +1,6 @@
 import type {
   AutomationTrigger,
+  AutomationSource,
   ScheduleCadence,
   ScheduleSummary,
   ScheduleTarget,
@@ -9,6 +10,23 @@ import { i18n } from "@/i18n/i18next";
 /** The run choice that starts an AI session; every other value is a plugin action ID. */
 export const AGENT_RUN = "agent";
 
+export function mergeSources(
+  current: AutomationSource[] = [],
+  updates: AutomationSource[],
+): AutomationSource[] {
+  return [...new Map([...current, ...updates].map((source) => [source.id, source])).values()];
+}
+
+export function canApproveSource(
+  connection: string | undefined,
+  status: string | undefined,
+): boolean {
+  return (
+    status === "online" &&
+    ["directTcp", "directSocket", "directPipe", "remoteSsh"].includes(connection ?? "")
+  );
+}
+
 /** Upstream keeps cron as the one clock; interval presets are cron expressions. */
 export type ClockKind = "cron" | "none";
 
@@ -17,14 +35,15 @@ export interface EventTriggerDraft {
   key: number;
   /** `source:event`, empty until chosen. */
   id: string;
-  /** `key=value` pairs separated by commas; every pair must equal the event data. */
+  original?: AutomationTrigger;
+  /** JSON object; scalar values retain their types and whitespace. */
   match: string;
 }
 
 export interface AutomationFormState {
   run: string;
   params: Record<string, unknown>;
-  /** Raw text of JSON fields, keyed by dotted path, parsed at submit. */
+  /** Raw JSON fields, keyed by JSON-encoded path segments, parsed at submit. */
   jsonText: Record<string, string>;
   clock: ClockKind;
   triggers: EventTriggerDraft[];
@@ -34,7 +53,7 @@ export interface AutomationFormState {
 export type AutomationFormAction =
   | { type: "run"; run: string }
   | { type: "param"; path: string[]; value: unknown }
-  | { type: "json"; path: string; text: string }
+  | { type: "json"; path: string[]; text: string }
   | { type: "clock"; clock: ClockKind }
   | { type: "addTrigger" }
   | { type: "trigger"; index: number; patch: Partial<EventTriggerDraft> }
@@ -42,13 +61,6 @@ export type AutomationFormAction =
   | { type: "rateLimit"; text: string };
 
 let nextDraftKey = 0;
-
-function formatMatch(trigger: AutomationTrigger): string {
-  const match = (trigger.match ?? {}) as Record<string, unknown>;
-  return Object.entries(match)
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join(", ");
-}
 
 export function initAutomationForm(schedule: ScheduleSummary | undefined): AutomationFormState {
   const target = schedule?.target;
@@ -60,8 +72,9 @@ export function initAutomationForm(schedule: ScheduleSummary | undefined): Autom
     clock: cadence?.type === "none" ? "none" : "cron",
     triggers: (schedule?.triggers ?? []).map((trigger) => ({
       key: nextDraftKey++,
+      original: trigger,
       id: `${String(trigger.source)}:${String(trigger.event)}`,
-      match: formatMatch(trigger),
+      match: JSON.stringify(trigger.match ?? {}),
     })),
     rateLimit: schedule?.eventRateLimit ? String(schedule.eventRateLimit) : "",
   };
@@ -99,7 +112,10 @@ export function reduceAutomationForm(
     case "param":
       return { ...state, params: setPath(state.params, action.path, action.value) };
     case "json":
-      return { ...state, jsonText: { ...state.jsonText, [action.path]: action.text } };
+      return {
+        ...state,
+        jsonText: { ...state.jsonText, [JSON.stringify(action.path)]: action.text },
+      };
     case "clock":
       return { ...state, clock: action.clock };
     case "addTrigger":
@@ -122,7 +138,7 @@ export function reduceAutomationForm(
 }
 
 export interface ParamField {
-  kind: "string" | "number" | "boolean" | "strings" | "enum" | "object" | "json";
+  kind: "string" | "number" | "boolean" | "enum" | "object" | "json";
   key: string;
   label: string;
   required: boolean;
@@ -135,6 +151,7 @@ type JsonSchema = Record<string, unknown>;
 function fieldFor(key: string, schema: JsonSchema, required: boolean): ParamField {
   const label = typeof schema.title === "string" ? schema.title : key;
   const base = { key, label, required };
+  if (!supportedSchema(schema)) return { ...base, kind: "json" };
   if (Array.isArray(schema.enum) && schema.enum.every((value) => typeof value === "string"))
     return {
       ...base,
@@ -144,16 +161,69 @@ function fieldFor(key: string, schema: JsonSchema, required: boolean): ParamFiel
   if (schema.type === "string") return { ...base, kind: "string" };
   if (schema.type === "number" || schema.type === "integer") return { ...base, kind: "number" };
   if (schema.type === "boolean") return { ...base, kind: "boolean" };
-  if (schema.type === "array" && (schema.items as JsonSchema | undefined)?.type === "string")
-    return { ...base, kind: "strings" };
   const fields = objectFields(schema);
   return fields ? { ...base, kind: "object", fields } : { ...base, kind: "json" };
+}
+
+function supportedSchema(schema: JsonSchema): boolean {
+  const keys =
+    "$schema,type,title,description,default,enum,properties,required,additionalProperties,items".split(
+      ",",
+    );
+  if (Object.keys(schema).some((key) => !keys.includes(key))) return false;
+  if (
+    schema.enum &&
+    (!Array.isArray(schema.enum) ||
+      schema.type !== "string" ||
+      schema.enum.some((v) => typeof v !== "string"))
+  )
+    return false;
+  if (schema.type === "object")
+    return (
+      schema.additionalProperties !== true &&
+      typeof schema.additionalProperties !== "object" &&
+      Object.values((schema.properties ?? {}) as Record<string, JsonSchema>).every(supportedSchema)
+    );
+  if (schema.type === "array") return supportedSchema((schema.items ?? {}) as JsonSchema);
+  return ["string", "number", "integer", "boolean"].includes(String(schema.type));
+}
+
+/** Defaults feed both the rendered controls and the submitted params. */
+export function defaultParams(
+  params: Record<string, unknown>,
+  schema: JsonSchema = {},
+): Record<string, unknown> {
+  const result = { ...params };
+  for (const [key, child] of Object.entries(
+    (schema.properties ?? {}) as Record<string, JsonSchema>,
+  )) {
+    if (result[key] === undefined) {
+      if (child.default !== undefined) result[key] = child.default;
+      else if (child.type === "boolean") result[key] = false;
+    }
+    if (
+      child.type === "object" &&
+      (result[key] !== undefined || (schema.required as string[] | undefined)?.includes(key))
+    )
+      result[key] =
+        result[key] === null
+          ? null
+          : defaultParams((result[key] ?? {}) as Record<string, unknown>, child);
+    if (result[key] === undefined) delete result[key];
+  }
+  return result;
 }
 
 /** Fields for an object schema with named properties; null when the shape is not supported. */
 export function objectFields(schema: JsonSchema): ParamField[] | null {
   const properties = schema.properties as Record<string, JsonSchema> | undefined;
-  if (schema.type !== "object" || !properties || Object.keys(properties).length === 0) return null;
+  if (
+    !supportedSchema(schema) ||
+    schema.type !== "object" ||
+    !properties ||
+    Object.keys(properties).length === 0
+  )
+    return null;
   const required = new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []);
   return Object.entries(properties).map(([key, child]) => fieldFor(key, child, required.has(key)));
 }
@@ -161,14 +231,15 @@ export function objectFields(schema: JsonSchema): ParamField[] | null {
 /** Params with JSON fields parsed in place. Throws with the field path on invalid JSON. */
 export function resolveParams(state: AutomationFormState): Record<string, unknown> {
   let params = state.params;
-  for (const [path, text] of Object.entries(state.jsonText)) {
+  for (const [encoded, text] of Object.entries(state.jsonText)) {
+    const path = JSON.parse(encoded) as string[];
     let value: unknown;
     try {
       value = text.trim() ? JSON.parse(text) : undefined;
     } catch {
-      throw new Error(i18n.t("automation.jsonError", { field: path || "params" }));
+      throw new Error(i18n.t("automation.jsonError", { field: path.join(".") || "params" }));
     }
-    if (path) params = setPath(params, path.split("."), value);
+    if (path.length) params = setPath(params, path, value);
     else if (value === undefined || value?.constructor === Object)
       params = (value ?? {}) as Record<string, unknown>;
     else throw new Error(i18n.t("automation.jsonError", { field: "params" }));
@@ -182,7 +253,7 @@ export function parseActionIssues(message: string): Record<string, string> | nul
   if (start < 0) return null;
   try {
     const issues = JSON.parse(message.slice(start)) as { path?: unknown[]; message?: string }[];
-    if (!Array.isArray(issues)) return null;
+    if (!Array.isArray(issues) || issues.length === 0) return null;
     const result: Record<string, string> = {};
     for (const issue of issues) result[(issue.path ?? []).join(".")] = issue.message ?? "";
     return result;
@@ -191,27 +262,32 @@ export function parseActionIssues(message: string): Record<string, string> | nul
   }
 }
 
-function parseMatch(text: string): Record<string, string | number | boolean> | undefined {
-  const match: Record<string, string | number | boolean> = {};
-  for (const pair of text.split(",")) {
-    if (!pair.trim()) continue;
-    const separator = pair.indexOf("=");
-    if (separator < 1) throw new Error(i18n.t("automation.matchError", { pair: pair.trim() }));
-    const raw = pair.slice(separator + 1).trim();
-    let value: string | number | boolean = raw;
-    if (raw === "true" || raw === "false") value = raw === "true";
-    else if (raw !== "" && Number.isFinite(Number(raw))) value = Number(raw);
-    match[pair.slice(0, separator).trim()] = value;
+function parseMatch(text: string): Record<string, string | number | boolean> {
+  try {
+    const match = text.trim() ? JSON.parse(text) : {};
+    if (
+      match?.constructor === Object &&
+      Object.values(match).every((v) => ["string", "number", "boolean"].includes(typeof v))
+    )
+      return match;
+  } catch {
+    // Report malformed JSON and unsupported values through the same field error.
   }
-  return Object.keys(match).length > 0 ? match : undefined;
+  throw new Error(i18n.t("automation.jsonError", { field: i18n.t("automation.match") }));
 }
 
 export function buildTriggers(drafts: EventTriggerDraft[]): AutomationTrigger[] {
   return drafts.map((draft) => {
     const [source, event] = draft.id.split(":");
     if (!source || !event) throw new Error(i18n.t("automation.eventRequired"));
-    const match = parseMatch(draft.match);
-    return { type: "event" as const, source, event, ...(match ? { match } : {}) };
+    const original = draft.original;
+    const trigger: AutomationTrigger = { ...original, type: "event", source, event };
+    if (!original || draft.match !== JSON.stringify(original.match ?? {})) {
+      const match = parseMatch(draft.match);
+      if (Object.keys(match).length) trigger.match = match;
+      else delete trigger.match;
+    }
+    return trigger;
   });
 }
 
