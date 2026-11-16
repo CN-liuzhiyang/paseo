@@ -9,6 +9,18 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.7.0 - 2026-11-16
+
+Carries upstream v0.15.4, up from the previous fork release 1.6.2, whose upstream base was v0.15.3.
+
+### Added
+
+- Claude Fable 5.2 and Mythos 5.2 are available, with medium default effort. Both require Claude Code 2.1.321 or newer; Mythos 5.2 appears when Claude Code advertises access.
+
+### Included fork commits
+
+- `8cdb9670a` — synced the fork with upstream v0.15.4.
+
 ## 1.6.2 - 2026-11-12
 
 Same upstream base as 1.6.1 (v0.15.3).
