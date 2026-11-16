@@ -69,8 +69,14 @@ function createCatalogClient(claudeCodeVersion = "2.1.321"): ClaudeAgentClient {
     discoverModels: async () => [
       {
         value: "mythos",
-        resolvedModel: "claude-mythos-5-1",
+        resolvedModel: "claude-mythos-5-2",
         displayName: "Mythos",
+        description: "",
+      },
+      {
+        value: "claude-mythos-5-1",
+        resolvedModel: "claude-mythos-5-1",
+        displayName: "Mythos 5.1",
         description: "",
       },
     ],
@@ -83,6 +89,7 @@ describe("getClaudeModels", () => {
     expect(models.map((m) => m.id)).toEqual([
       "claude-opus-5-5",
       "claude-opus-5",
+      "claude-mythos-5-2",
       "claude-mythos-5-1",
       "claude-fable-5-2",
       "claude-fable-5-1",
@@ -120,6 +127,7 @@ describe("getClaudeModels", () => {
       new Map([
         ["claude-opus-5-5", 1_000_000],
         ["claude-opus-5", 1_000_000],
+        ["claude-mythos-5-2", 1_000_000],
         ["claude-mythos-5-1", 1_000_000],
         ["claude-fable-5-2", 1_000_000],
         ["claude-fable-5-1", 1_000_000],
@@ -164,6 +172,12 @@ describe("getClaudeModels", () => {
     expect(getClaudeModels("2.1.292").map((model) => model.id)).not.toContain("claude-haiku-5-5");
     expect(getClaudeModels("2.1.293").map((model) => model.id)).toContain("claude-haiku-5-5");
     expect(getClaudeModels("2.1.293").find((model) => model.isDefault)?.id).toBe("claude-opus-5-5");
+  });
+
+  it("gates Fable 5.2 on Claude Code 2.1.321 without changing the default", () => {
+    expect(getClaudeModels("2.1.320").map((model) => model.id)).not.toContain("claude-fable-5-2");
+    expect(getClaudeModels("2.1.321").map((model) => model.id)).toContain("claude-fable-5-2");
+    expect(getClaudeModels("2.1.321").find((model) => model.isDefault)?.id).toBe("claude-opus-5-5");
   });
 
   it("derives thinking options from model effort capabilities", () => {
@@ -235,6 +249,8 @@ describe("getClaudeModels", () => {
     ["claude-sonnet-5-20260101", true, "high"],
     ["claude-fable-5", false, "high"],
     ["claude-fable-5-1", false, "high"],
+    ["claude-fable-5-2", false, "medium"],
+    ["claude-mythos-5-2", false, "medium"],
     ["claude-haiku-5-5", true, "medium"],
     ["claude-haiku-5-5-20261007", true, "medium"],
     ["claude-haiku-4-5", false, undefined],
@@ -287,6 +303,31 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
     },
   );
 
+  it("offers Mythos 5.2 in place of Mythos 5.1 when Claude Code resolves mythos to 5.2", async () => {
+    const configDir = await createClaudeConfigDir({});
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      resolveVersion: async () => "2.1.321",
+      runtimeSettings: { env: { CLAUDE_CONFIG_DIR: configDir } },
+      discoverModels: async () => [
+        {
+          value: "mythos",
+          resolvedModel: "claude-mythos-5-2",
+          displayName: "Mythos",
+          description: "",
+        },
+      ],
+    });
+    const { models } = await client.fetchCatalog({
+      scope: "workspace",
+      cwd: configDir,
+      force: false,
+    });
+    expect(models.filter((model) => model.id.startsWith("claude-mythos-"))).toEqual([
+      findClaudeModel("claude-mythos-5-2"),
+    ]);
+  });
+
   it("preserves the curated catalog and explicitly configured models after discovery failure", async () => {
     const configDir = await createClaudeConfigDir({ model: "claude-mythos-5-1" });
     const client = new ClaudeAgentClient({
@@ -302,8 +343,8 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
       cwd: configDir,
       force: false,
     });
-    expect(models.filter((model) => model.id !== "claude-mythos-5-1")).toEqual(
-      getClaudeModels("2.1.293").filter((model) => model.id !== "claude-mythos-5-1"),
+    expect(models.filter((model) => !model.id.startsWith("claude-mythos-"))).toEqual(
+      getClaudeModels("2.1.293").filter((model) => !model.id.startsWith("claude-mythos-")),
     );
     expect(models.find((model) => model.id === "claude-mythos-5-1")).toEqual({
       ...findClaudeModel("claude-mythos-5-1"),
@@ -363,7 +404,7 @@ describe("ClaudeAgentClient.fetchCatalog", () => {
     });
     expect(models.map((model) => model.id)).toEqual(
       getClaudeModels("2.1.293")
-        .filter((model) => model.id !== "claude-mythos-5-1")
+        .filter((model) => !model.id.startsWith("claude-mythos-"))
         .map((model) => model.id),
     );
   });
@@ -855,6 +896,44 @@ describe("Claude Fable 5.1 catalog", () => {
   });
 });
 
+describe("Claude Fable 5.2 catalog", () => {
+  it("offers one 1M model with medium default effort, always-on thinking, and fast mode", () => {
+    const models = getClaudeModels().filter((model) => model.id.startsWith("claude-fable-5-2"));
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: "claude-fable-5-2",
+      label: "Fable 5.2",
+      contextWindowMaxTokens: 1_000_000,
+      defaultThinkingOptionId: "medium",
+    });
+    expect(models[0].thinkingOptions?.map((option) => option.id)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      CLAUDE_ULTRACODE_THINKING_OPTION_ID,
+    ]);
+    expect(claudeManifestModelSupportsFastMode("claude-fable-5-2")).toBe(true);
+  });
+
+  it.each([
+    "claude-fable-5-2[1m]",
+    "claude-fable-5-2-20261110",
+    "claude-fable-5-2-20261110[1m]",
+    "Fable 5.2",
+  ])("resolves %s to the single catalog entry", (id) => {
+    expect(findClaudeModel(id)?.id).toBe("claude-fable-5-2");
+  });
+
+  it.each(["claude-fable-5-2", "anthropic/claude-fable-5-2", "us.anthropic.claude-fable-5-2-v1:0"])(
+    "keeps runtime model %s from collapsing onto Fable 5",
+    (id) => {
+      expect(normalizeClaudeRuntimeModelId(id)).toBe("claude-fable-5-2");
+    },
+  );
+});
+
 describe("Claude Opus 5.5 catalog", () => {
   it("offers one Opus 5.5 entry with a 1M context window", () => {
     const opus55Models = getClaudeModels()
@@ -990,7 +1069,7 @@ describe("claudeManifestModelSupportsFastMode", () => {
 
 describe("Claude Mythos 5.1 catalog", () => {
   it("offers one 1M model with high default effort and always-on thinking", () => {
-    const models = getClaudeModels().filter((model) => model.id.startsWith("claude-mythos"));
+    const models = getClaudeModels().filter((model) => model.id.startsWith("claude-mythos-5-1"));
     expect(models).toHaveLength(1);
     expect(models[0]).toMatchObject({
       id: "claude-mythos-5-1",
@@ -1030,6 +1109,61 @@ describe("Claude Mythos 5.1 catalog", () => {
     "normalizes runtime identity without granting first-party capabilities: %s",
     (id) => {
       expect(normalizeClaudeRuntimeModelId(id)).toBe("claude-mythos-5-1");
+      expect(normalizeClaudeManifestModelId(id)).toBeNull();
+    },
+  );
+});
+
+describe("Claude Mythos 5.2 catalog", () => {
+  it("stays hidden on Claude Code older than 2.1.321 even when advertised", async () => {
+    const configDir = await createClaudeConfigDir({});
+    const client = new ClaudeAgentClient({
+      logger: createTestLogger(),
+      resolveVersion: async () => "2.1.320",
+      runtimeSettings: { env: { CLAUDE_CONFIG_DIR: configDir } },
+      discoverModels: async () => [
+        {
+          value: "mythos",
+          resolvedModel: "claude-mythos-5-2",
+          displayName: "Mythos",
+          description: "",
+        },
+      ],
+    });
+
+    const { models } = await client.fetchCatalog({
+      scope: "workspace",
+      cwd: configDir,
+      force: false,
+    });
+
+    expect(models.some((model) => model.id === "claude-mythos-5-2")).toBe(false);
+  });
+
+  it("offers one 1M model with medium default effort, always-on thinking, and fast mode", () => {
+    const models = getClaudeModels().filter((model) => model.id.startsWith("claude-mythos-5-2"));
+    expect(models).toHaveLength(1);
+    expect(models[0]).toMatchObject({
+      id: "claude-mythos-5-2",
+      label: "Mythos 5.2",
+      contextWindowMaxTokens: 1_000_000,
+      defaultThinkingOptionId: "medium",
+    });
+    expect(models[0].thinkingOptions?.map((option) => option.id)).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+      CLAUDE_ULTRACODE_THINKING_OPTION_ID,
+    ]);
+    expect(claudeManifestModelSupportsFastMode("claude-mythos-5-2")).toBe(true);
+  });
+
+  it.each(["anthropic/claude-mythos-5-2", "us.anthropic.claude-mythos-5-2-v1:0"])(
+    "normalizes runtime identity without granting first-party capabilities: %s",
+    (id) => {
+      expect(normalizeClaudeRuntimeModelId(id)).toBe("claude-mythos-5-2");
       expect(normalizeClaudeManifestModelId(id)).toBeNull();
     },
   );
