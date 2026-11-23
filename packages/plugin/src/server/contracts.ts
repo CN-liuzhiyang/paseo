@@ -179,11 +179,12 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
    */
   registerChannel?(channel: ChannelRegistration): void;
   /**
-   * Send a message to a registered channel. The receiving channel gets this plugin as the source.
-   * Undefined on hosts that predate it.
+   * Send a message through a channel any running plugin registered, this one included. Rejects with
+   * the channel's own error, or `No running plugin provides channel "<id>"`. Undefined on hosts that
+   * predate it: check `typeof server.deliver === "function"` once, in the entry.
    */
   deliver?(channelId: string, message: ChannelMessage): Promise<void>;
-  /** List the running channels and their destinations. Undefined on hosts that predate it. */
+  /** The channels `deliver` can reach, as `paseo schedule channels` lists them. Undefined like `deliver`. */
   listChannels?(): Promise<ScheduleChannel[]>;
   registerAction?<P extends ZodType>(action: ActionRegistration<P>): void;
   registerTriggerSource?(source: TriggerSourceRegistration): void;

@@ -183,7 +183,7 @@ export const sectionKitStyles = StyleSheet.create((theme) => ({
     gap: theme.spacing[2],
     paddingHorizontal: theme.spacing[3],
     // Fixed, not minHeight plus padding. A row's trailing slot holds an sm Button
-    // whose height stacked on the vertical padding and made rows with an
+    // , which stacked on the vertical padding and made rows with an
     // "Add to chat" button taller than rows without one. The row is single-line by
     // construction, so it declares a height the button fits inside instead.
     height: mapLayout(CONTROL_HEIGHTS.sm, (height) => height + theme.spacing[1]),
