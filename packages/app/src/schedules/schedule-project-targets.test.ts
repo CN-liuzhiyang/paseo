@@ -71,6 +71,7 @@ function makeWorkspace(
     id: "wks_main",
     name: "main",
     workspaceKind: "local_checkout",
+    background: false,
     status: "done",
     currentBranch: "main",
     changeRequestNumber: null,
