@@ -35,8 +35,10 @@ const WORK = process.env.FORK_GUARD_WORK ?? "HEAD";
 // event sources and project definitions (stages 1a/1b). Raised to 218/17800 on 2026-11-12 for
 // stage 2: app forms for triggers, plugin actions and project sources. Raised to 218/18100 on
 // 2026-11-12 for reviewed form fixes and regression coverage. Reduce when upstream absorbs them.
+// Raised to 218/18200 on 2026-11-23 for the v0.16.2 sync, adapting to upstream WorkspaceRegistry
+// and other interface changes and resolving conflicts; reduce when upstream absorbs the patches.
 const MAX_FILES = Number(process.env.FORK_GUARD_MAX_FILES ?? 218);
-const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 18100);
+const MAX_LINES = Number(process.env.FORK_GUARD_MAX_LINES ?? 18200);
 
 // Paths that exist only because this is a fork. They never go upstream and
 // never sit where upstream edits, so they cost nothing at merge time and are

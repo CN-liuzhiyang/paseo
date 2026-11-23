@@ -289,4 +289,4 @@ fork and cherry-pick only upstream's security and bug fixes.
 The delta budget in `check-delta.mjs` is the early warning, not the trigger.
 The approved automation stages 1a/1b raise it to 210 files / 16000 changed lines,
 and stage 2 (app forms, including reviewed fixes and regression coverage) to
-218 files / 18100 lines.
+218 files / 18200 lines after the v0.16.2 sync adaptations.

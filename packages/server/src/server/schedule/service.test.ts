@@ -4312,7 +4312,7 @@ describe("ScheduleService", () => {
       expect.any(String),
       expect.any(String),
     ]);
-    expect(await workspaceRegistry.list()).toEqual([
+    expect(await workspaceRegistry.listAll()).toEqual([
       expect.objectContaining({ workspaceId: workspace.workspaceId, archivedAt: null }),
     ]);
     expect(archiveWorkspaceCalls).toEqual([]);
@@ -4357,7 +4357,7 @@ describe("ScheduleService", () => {
     ).rejects.toThrow("provider misconfigured");
 
     expect(archiveWorkspaceCalls).toEqual([]);
-    expect((await workspaceRegistry.list()).map((record) => record.archivedAt)).toEqual([null]);
+    expect((await workspaceRegistry.listAll()).map((record) => record.archivedAt)).toEqual([null]);
   });
 
   describe("workspace target: runs that fail after the agent was created", () => {
@@ -4376,13 +4376,13 @@ describe("ScheduleService", () => {
 
     async function expectWorkspaceUntouched(setup: BoundSetup) {
       expect(setup.archiveWorkspaceCalls).toEqual([]);
-      expect((await setup.workspaceRegistry.list()).map((record) => record.archivedAt)).toEqual([
+      expect((await setup.workspaceRegistry.listAll()).map((record) => record.archivedAt)).toEqual([
         null,
       ]);
     }
 
     async function singleAgentOf(setup: BoundSetup) {
-      const agents = await agentStorage.list();
+      const agents = await agentStorage.listAll();
       expect(agents).toHaveLength(1);
       expect(agents[0]?.workspaceId).toBe(setup.workspace.workspaceId);
       return agents[0]!;
@@ -4512,7 +4512,7 @@ describe("ScheduleService", () => {
       agentId: null,
       error: expect.stringContaining(`Workspace ${workspace.workspaceId} is archived`),
     });
-    expect(await workspaceRegistry.list()).toHaveLength(1);
+    expect(await workspaceRegistry.listAll()).toHaveLength(1);
     expect(archiveWorkspaceCalls).toEqual([]);
   });
 
@@ -4534,7 +4534,7 @@ describe("ScheduleService", () => {
       status: "failed",
       error: expect.stringContaining(`Workspace ${workspace.workspaceId} no longer exists`),
     });
-    expect(await workspaceRegistry.list()).toEqual([]);
+    expect(await workspaceRegistry.listAll()).toEqual([]);
   });
 
   test("workspace target: a workspace record marked untrusted after binding fails the run and keeps the schedule", async () => {

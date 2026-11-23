@@ -355,8 +355,9 @@ test("timeline reads keep runnable unarchived agents interactive for the next pr
     ]);
     expect(purposes).toEqual([
       { purpose: "interactive" },
-      { purpose: "history" },
-      undefined, // Reload uses the provider's interactive default.
+      { purpose: "history", lastUsage: { inputTokens: 1, outputTokens: 1 } },
+      // Reload uses the provider's interactive default.
+      { lastUsage: { inputTokens: 1, outputTokens: 1 } },
     ]);
   } finally {
     await ctx.cleanup();

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestLogger } from "../../../../test-utils/test-logger.js";
 import { ClaudeAgentClient } from "./agent.js";
-import { buildClaudeFeatures } from "./feature-definitions.js";
+import { buildClaudeControls } from "./feature-definitions.js";
 import {
   CLAUDE_DISABLED_THINKING_OPTION_ID,
   CLAUDE_ULTRACODE_THINKING_OPTION_ID,
@@ -849,28 +849,20 @@ describe("Claude Fable 5.2 catalog", () => {
   });
 
   it("offers Fast for first-party Fable 5.2 without granting it to gateways or older Fable", () => {
-    expect(buildClaudeFeatures({ modelId: "claude-fable-5-2", fastModeEnabled: false })).toEqual([
+    expect(buildClaudeControls("claude-fable-5-2")).toEqual([
       {
         type: "toggle",
-        id: "fast_mode",
+        key: "fast_mode",
         label: "Fast",
-        value: false,
         description: "Lower latency responses at higher token cost",
         tooltip: "Toggle fast mode",
         icon: "zap",
       },
     ]);
     expect(claudeManifestModelSupportsFastMode("claude-fable-5-2-20261110")).toBe(true);
-    expect(
-      buildClaudeFeatures({
-        modelId: "openrouter/anthropic/claude-fable-5-2",
-        fastModeEnabled: false,
-      }),
-    ).toEqual([]);
-    expect(buildClaudeFeatures({ modelId: "claude-fable-5-1", fastModeEnabled: false })).toEqual(
-      [],
-    );
-    expect(buildClaudeFeatures({ modelId: "claude-fable-5", fastModeEnabled: false })).toEqual([]);
+    expect(buildClaudeControls("openrouter/anthropic/claude-fable-5-2")).toEqual([]);
+    expect(buildClaudeControls("claude-fable-5-1")).toEqual([]);
+    expect(buildClaudeControls("claude-fable-5")).toEqual([]);
   });
 
   it("offers a single 1M model with medium default effort and always-on thinking", () => {
