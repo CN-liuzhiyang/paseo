@@ -33,6 +33,11 @@ export const fr: TranslationResources = {
     relayBlocked: "Un relais ne peut pas approuver les automatisations du projet.",
     confirmEnable: "Activer {{name}} avec l'empreinte {{fingerprint}} ?",
   },
+  pluginCombobox: {
+    searching: "Recherche…",
+    empty: "Aucun résultat",
+    failed: "Échec de la recherche : {{message}}",
+  },
   paneFind: {
     connectionFailure:
       "Impossible de rechercher dans cette conversation. Vérifiez la connexion à l’hôte et réessayez.",
@@ -117,14 +122,23 @@ export const fr: TranslationResources = {
       close: "Fermer le menu",
     },
     commandCenter: {
-      placeholder: "Rechercher des commandes, fichiers, espaces de travail et agents…",
+      placeholder: "Rechercher des espaces de travail, fichiers et actions…",
+      placeholderWithoutFiles: "Rechercher des espaces de travail et des actions…",
       filePlaceholder: "Rechercher des fichiers…",
+      workspacePlaceholder: "Rechercher des espaces de travail…",
+      actionPlaceholder: "Rechercher des actions…",
       searchingFiles: "Recherche de fichiers…",
       noMatches: "Aucun résultat",
       actions: "Actions",
       files: "Fichiers",
       workspaces: "Espaces de travail",
-      agents: "Agents",
+      recentWorkspaces: "Espaces de travail récents",
+      tabs: {
+        all: "Tout",
+        workspaces: "Espaces de travail",
+        files: "Fichiers",
+        actions: "Actions",
+      },
       newAgent: "Nouvel agent",
       open: "Ouvrir {{name}}",
       openInSidePane: "Ouvrir {{name}} dans le panneau latéral",
@@ -290,7 +304,7 @@ export const fr: TranslationResources = {
     states: {
       notFound: "Agent introuvable",
       failedToLoad: "Impossible de charger l’agent",
-      reconnecting: "Reconnexion à l’hôte…",
+      reconnecting: "Reconnexion…",
       updating: "Mise à jour des messages…",
       timelineSyncFailed: "Impossible d’actualiser l’historique de l’agent.",
       timelineSyncRetrying: "Nouvelle tentative…",
@@ -415,6 +429,24 @@ export const fr: TranslationResources = {
       answerPlaceholder: "Saisissez votre réponse…",
       otherPlaceholder: "Autre…",
     },
+    backgroundWork: {
+      pillOne: "1 tâche en arrière-plan",
+      pillMany: "{{count}} tâches en arrière-plan",
+      notRunning: "N’est plus en cours",
+      dismiss: "Fermer",
+      stop: "Arrêter",
+      stopping: "Arrêt…",
+      stopError: "Impossible de confirmer l’arrêt.",
+      label: "Arrière-plan",
+      title: "Travail en arrière-plan",
+      waiting: "En attente des détails",
+      error: "Impossible de charger le travail en arrière-plan",
+      retry: "Réessayer",
+      running: "Travail en arrière-plan en cours",
+      shell: "Shell",
+      monitor: "Surveillance",
+      other: "Autre travail",
+    },
     todo: {
       title: "Tâches",
       empty: "Aucune tâche pour l’instant.",
@@ -488,8 +520,7 @@ export const fr: TranslationResources = {
         archivedTitle: "Espace de travail archivé",
         restoreDescription:
           "Restaurez {{workspaceName}} pour retrouver ses agents. Son worktree utilisera la branche {{branch}}.",
-        restoreWithoutBranchDescription:
-          "Restaurez {{workspaceName}} pour retrouver ses agents. Une nouvelle branche partira de la base enregistrée ou de la branche par défaut du dépôt.",
+        restoreWithoutBranchDescription: "Restaurez {{workspaceName}} pour retrouver ses agents.",
         unarchiveDescription: "{{workspaceName}} est archivé. Désarchivez-le pour le rouvrir.",
         restoreAction: "Restaurer",
         unarchiveAction: "Désarchiver",
@@ -987,6 +1018,9 @@ export const fr: TranslationResources = {
         },
       },
       diff: {
+        baseBranch: {
+          title: "Branche de base",
+        },
         openChangesTab: "Ouvrir l’onglet Modifications",
         openDiffTab: "Ouvrir l’onglet Diff",
         closeChangesTab: "Fermer l’onglet Modifications",
@@ -1211,6 +1245,8 @@ export const fr: TranslationResources = {
     title: "Nouveautés",
     installed: "Installée",
     showMore: "Afficher plus",
+    showAllChanges: "Afficher toutes les modifications",
+    hideAllChanges: "Masquer toutes les modifications",
     openWebsite: "Journal des modifications complet",
     error: {
       title: "Impossible de charger le journal des modifications",
@@ -1218,6 +1254,14 @@ export const fr: TranslationResources = {
     },
   },
   sidebar: {
+    view: {
+      failed: "Impossible de charger la vue de la barre latérale.",
+      useDefault: "Utiliser la vue par défaut",
+      readFailed: "Impossible de charger votre préférence de vue de la barre latérale.",
+      agentUnavailable: "Cet agent n’est plus disponible",
+      terminalUnavailable: "Ce terminal n’est plus disponible",
+      projectUnavailable: "Ce projet n’est plus disponible",
+    },
     statusGroupAccessibility: "Groupe {{label}}",
     statusBucket: {
       needsInput: "Attend une réponse",
@@ -1294,6 +1338,7 @@ export const fr: TranslationResources = {
       hosts: "Hôtes",
       settings: "Paramètres",
       closeSidebar: "Fermer la barre latérale",
+      moreActions: "Plus d’actions",
     },
     footer: {
       usage: "Utilisation",
@@ -1398,6 +1443,9 @@ export const fr: TranslationResources = {
         hostDisconnected: "L’hôte n’est pas connecté",
         hideFailed: "Impossible de masquer l’espace de travail",
         archiveFailed: "Impossible d’archiver l’espace de travail",
+        archived: "Espace de travail archivé",
+        undoArchive: "Annuler",
+        undoArchiveFailed: "Impossible d’annuler l’archivage",
       },
     },
   },
@@ -1667,6 +1715,7 @@ export const fr: TranslationResources = {
     openPath: "Ouvrir le chemin",
   },
   branchSwitcher: {
+    failedToLoad: "Impossible de charger les branches. Rouvrez le sélecteur pour réessayer.",
     triggerTooltip: "Changer la branche de l’espace de travail",
     currentBranch: "Branche actuelle : {{branchName}}. Appuyez pour changer de branche.",
     placeholder: "Changer de branche…",
@@ -1691,7 +1740,11 @@ export const fr: TranslationResources = {
     loadingCommands: "Chargement des commandes…",
     noFiles: "Aucun fichier ou répertoire trouvé",
     noCommands: "Aucune commande trouvée",
-    failedToLoad: "Échec du chargement",
+    loadingProviderCommands: "Chargement des commandes {{provider}}…",
+    commandsFailed: "Impossible de charger les commandes",
+    providerCommandsFailed: "Impossible de charger les commandes {{provider}}",
+    filesFailed: "Impossible de rechercher les fichiers",
+    skillTag: "Skill",
     chooseProjectForCommands: "Choisissez un projet pour afficher les commandes",
     chooseModelForCommands: "Sélectionnez un modèle pour afficher les commandes",
   },
@@ -2042,6 +2095,7 @@ export const fr: TranslationResources = {
     hostUnavailable: "L’hôte de téléchargement est indisponible.",
     cancelled: "Téléchargement annulé.",
     failed: "Impossible de télécharger le fichier.",
+    httpFailed: "Impossible de télécharger le fichier (HTTP {{status}}).",
     shareFile: "Partager le fichier",
     shareFileNamed: "Partager {{fileName}}",
   },
@@ -2239,6 +2293,7 @@ export const fr: TranslationResources = {
     turnOn: "Activer",
 
     options: "Paramètres",
+    host: "Hôte",
     refreshFailed: "Impossible d’actualiser l’utilisation",
     noHosts: "Aucun hôte connecté",
     agentError: "Impossible de charger l’utilisation : {{reason}}",
@@ -2255,6 +2310,8 @@ export const fr: TranslationResources = {
     loginExpired: "Connexion expirée {{relativeTime}}. {{remedy}}",
     title: "Utilisation du forfait",
     refresh: "Actualiser",
+    reorderCard: "Réorganiser {{source}}",
+    showCard: "Afficher {{source}}",
     refreshAll: "Tout actualiser",
     refreshing: "Actualisation...",
     loading: "Chargement de l’utilisation...",
@@ -2631,6 +2688,13 @@ export const fr: TranslationResources = {
         description: "Afficher un plan pour naviguer entre les prompts",
       },
       sidebar: {
+        view: {
+          title: "Vue de la barre latérale",
+          label: "Vue",
+          default: "Vue par défaut",
+          unavailable:
+            "La vue sélectionnée est indisponible ou désactivée. La vue par défaut est affichée.",
+        },
         header: {
           title: "En-tête",
           description:

@@ -13,7 +13,7 @@ export type {
   EmitResult,
   RunTrigger,
 } from "@getpaseo/protocol/schedule/types";
-import type { PluginRpcContract } from "../rpc.js";
+import type { PluginRpcContract, PluginSubscriptionContract, PluginWireInput } from "../rpc.js";
 import type { PluginCleanup } from "../contracts.js";
 import type { ProviderRegistration } from "./provider.js";
 import type { UsageSourceRegistration } from "./usage.js";
@@ -47,6 +47,18 @@ export interface ActionRegistration<P extends ZodType = ZodType> {
     input: ActionInput<ZodOutput<P>>,
     context: ActionContext,
   ): Promise<ActionResult> | ActionResult;
+}
+
+/** What a subscription handler receives beside its input. */
+export interface PluginSubscriptionContext<Event = unknown> extends PluginHandlerContext {
+  /**
+   * Sends one event to this subscriber. A `Uint8Array` event travels as a binary frame; any other
+   * event is JSON and must not contain a `Uint8Array`. Resolves once the event left the plugin
+   * process. Events pushed after `signal` aborts are dropped.
+   */
+  push(event: Event): Promise<void>;
+  /** Aborts when the subscriber releases, disconnects, or the plugin stops. */
+  signal: AbortSignal;
 }
 
 export type PluginSettingsState<Schema extends ZodType> =
@@ -135,12 +147,24 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
   registerSettings<Schema extends ZodType>(
     definition: import("../settings.js").SettingsDefinition<Schema>,
   ): PluginSettings<Schema>;
+  /**
+   * Serves a subscription. The handler starts the work and returns; the subscription stays open
+   * until `signal` aborts. A handler that throws refuses the subscription. When it returns a
+   * promise, settling the promise closes the subscription, with the rejection as its error.
+   */
+  handle<InputSchema extends ZodType, EventSchema extends ZodType>(
+    contract: PluginSubscriptionContract<InputSchema, EventSchema>,
+    handler: (
+      input: ZodOutput<InputSchema>,
+      context: PluginSubscriptionContext<PluginWireInput<ZodInput<EventSchema>>>,
+    ) => void | Promise<void>,
+  ): void;
   handle<InputSchema extends ZodType, OutputSchema extends ZodType>(
     contract: PluginRpcContract<InputSchema, OutputSchema>,
     handler: (
       input: ZodOutput<InputSchema>,
       context: PluginHandlerContext,
-    ) => ZodInput<OutputSchema> | Promise<ZodInput<OutputSchema>>,
+    ) => PluginWireInput<ZodInput<OutputSchema>> | Promise<PluginWireInput<ZodInput<OutputSchema>>>,
   ): void;
   registerProvider(provider: ProviderRegistration): void;
   /**
@@ -155,12 +179,11 @@ export interface PluginServerContext extends PluginLifecycleRegistration {
    */
   registerChannel?(channel: ChannelRegistration): void;
   /**
-   * Send a message through a channel any running plugin registered, this one included. Rejects with
-   * the channel's own error, or `No running plugin provides channel "<id>"`. Undefined on hosts that
-   * predate it: check `typeof server.deliver === "function"` once, in the entry.
+   * Send a message to a registered channel. The receiving channel gets this plugin as the source.
+   * Undefined on hosts that predate it.
    */
   deliver?(channelId: string, message: ChannelMessage): Promise<void>;
-  /** The channels `deliver` can reach, as `paseo schedule channels` lists them. Undefined like `deliver`. */
+  /** List the running channels and their destinations. Undefined on hosts that predate it. */
   listChannels?(): Promise<ScheduleChannel[]>;
   registerAction?<P extends ZodType>(action: ActionRegistration<P>): void;
   registerTriggerSource?(source: TriggerSourceRegistration): void;

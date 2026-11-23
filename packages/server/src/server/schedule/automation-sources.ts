@@ -199,7 +199,7 @@ export class AutomationSources {
     this.errors.clear();
     const found = new Set<string>();
     const projects = await this.options.projects.list();
-    const workspaces = await this.options.workspaces.list();
+    const workspaces = await this.options.workspaces.listAll();
     const visited = new Set<string>();
     for (const project of projects.filter((p) => !p.archivedAt)) {
       try {

@@ -33,6 +33,11 @@ export const ru: TranslationResources = {
     relayBlocked: "Через ретранслятор нельзя подтверждать автоматизации проекта.",
     confirmEnable: "Включить {{name}} с отпечатком {{fingerprint}}?",
   },
+  pluginCombobox: {
+    searching: "Поиск…",
+    empty: "Нет результатов",
+    failed: "Не удалось выполнить поиск: {{message}}",
+  },
   paneFind: {
     connectionFailure:
       "Не удалось выполнить поиск в чате. Проверьте подключение к хосту и повторите попытку.",
@@ -117,14 +122,23 @@ export const ru: TranslationResources = {
       close: "Закрыть меню",
     },
     commandCenter: {
-      placeholder: "Поиск команд, файлов, рабочих пространств и агентов...",
+      placeholder: "Поиск рабочих пространств, файлов и действий...",
+      placeholderWithoutFiles: "Поиск рабочих пространств и действий...",
       filePlaceholder: "Поиск файлов...",
+      workspacePlaceholder: "Поиск рабочих пространств...",
+      actionPlaceholder: "Поиск действий...",
       searchingFiles: "Поиск файлов...",
       noMatches: "Нет совпадений",
       actions: "Действия",
       files: "Файлы",
       workspaces: "Рабочие пространства",
-      agents: "Агенты",
+      recentWorkspaces: "Недавние рабочие пространства",
+      tabs: {
+        all: "Все",
+        workspaces: "Рабочие пространства",
+        files: "Файлы",
+        actions: "Действия",
+      },
       newAgent: "Новый агент",
       open: "Открыть {{name}}",
       openInSidePane: "Открыть {{name}} в боковой панели",
@@ -289,7 +303,7 @@ export const ru: TranslationResources = {
     states: {
       notFound: "Агент не найден",
       failedToLoad: "Не удалось загрузить агента",
-      reconnecting: "Повторное подключение к хосту",
+      reconnecting: "Повторное подключение",
       updating: "Обновление сообщений",
       timelineSyncFailed: "Не удалось обновить историю агента.",
       timelineSyncRetrying: "Повторная попытка…",
@@ -414,6 +428,24 @@ export const ru: TranslationResources = {
       answerPlaceholder: "Введите ответ...",
       otherPlaceholder: "Другой ответ...",
     },
+    backgroundWork: {
+      pillOne: "1 фоновая задача",
+      pillMany: "Фоновые задачи: {{count}}",
+      notRunning: "Больше не выполняется",
+      dismiss: "Закрыть",
+      stop: "Остановить",
+      stopping: "Остановка…",
+      stopError: "Не удалось подтвердить остановку.",
+      label: "В фоне",
+      title: "Фоновые задачи",
+      waiting: "Ожидание сведений о задачах",
+      error: "Не удалось загрузить фоновые задачи",
+      retry: "Повторить",
+      running: "Фоновые задачи выполняются",
+      shell: "Оболочка",
+      monitor: "Монитор",
+      other: "Другая задача",
+    },
     todo: {
       title: "Задачи",
       empty: "Задач пока нет.",
@@ -488,7 +520,7 @@ export const ru: TranslationResources = {
         restoreDescription:
           "Восстановите «{{workspaceName}}», чтобы вернуться к его агентам. Worktree будет использовать ветку {{branch}}.",
         restoreWithoutBranchDescription:
-          "Восстановите «{{workspaceName}}», чтобы вернуться к его агентам. Новая ветка будет создана от сохранённой базовой или ветки репозитория по умолчанию.",
+          "Восстановите «{{workspaceName}}», чтобы вернуться к его агентам.",
         unarchiveDescription:
           "Рабочее пространство «{{workspaceName}}» находится в архиве. Разархивируйте его, чтобы снова открыть.",
         restoreAction: "Восстановить",
@@ -978,6 +1010,9 @@ export const ru: TranslationResources = {
         },
       },
       diff: {
+        baseBranch: {
+          title: "Базовая ветка",
+        },
         openChangesTab: "Открыть вкладку «Изменения»",
         openDiffTab: "Открыть вкладку «Дифф»",
         closeChangesTab: "Закрыть вкладку «Изменения»",
@@ -1199,6 +1234,8 @@ export const ru: TranslationResources = {
     title: "Что нового",
     installed: "Установлена",
     showMore: "Показать ещё",
+    showAllChanges: "Показать все изменения",
+    hideAllChanges: "Скрыть все изменения",
     openWebsite: "Полный список изменений",
     error: {
       title: "Не удалось загрузить список изменений",
@@ -1206,6 +1243,14 @@ export const ru: TranslationResources = {
     },
   },
   sidebar: {
+    view: {
+      failed: "Не удалось загрузить вид боковой панели.",
+      useDefault: "Использовать стандартный вид",
+      readFailed: "Не удалось загрузить настройку вида боковой панели.",
+      agentUnavailable: "Агент больше недоступен",
+      terminalUnavailable: "Терминал больше недоступен",
+      projectUnavailable: "Проект больше недоступен",
+    },
     statusGroupAccessibility: "Группа «{{label}}»",
     statusBucket: {
       needsInput: "Ожидает ввода",
@@ -1282,6 +1327,7 @@ export const ru: TranslationResources = {
       hosts: "Хосты",
       settings: "Настройки",
       closeSidebar: "Закрыть боковую панель",
+      moreActions: "Дополнительные действия",
     },
     footer: {
       usage: "Использование",
@@ -1386,6 +1432,9 @@ export const ru: TranslationResources = {
         hostDisconnected: "Хост не подключён",
         hideFailed: "Не удалось скрыть рабочее пространство",
         archiveFailed: "Не удалось архивировать рабочее пространство",
+        archived: "Рабочее пространство архивировано",
+        undoArchive: "Отменить",
+        undoArchiveFailed: "Не удалось отменить архивацию",
       },
     },
   },
@@ -1653,6 +1702,7 @@ export const ru: TranslationResources = {
     openPath: "Открыть путь",
   },
   branchSwitcher: {
+    failedToLoad: "Не удалось загрузить ветки. Откройте список заново, чтобы повторить попытку.",
     triggerTooltip: "Переключить ветку рабочего пространства",
     currentBranch: "Текущая ветка: {{branchName}}. Нажмите, чтобы переключить ветку.",
     placeholder: "Сменить ветку...",
@@ -1677,7 +1727,11 @@ export const ru: TranslationResources = {
     loadingCommands: "Загрузка команд...",
     noFiles: "Файлы и каталоги не найдены",
     noCommands: "Команды не найдены",
-    failedToLoad: "Не удалось загрузить",
+    loadingProviderCommands: "Загрузка команд {{provider}}...",
+    commandsFailed: "Не удалось загрузить команды",
+    providerCommandsFailed: "Не удалось загрузить команды {{provider}}",
+    filesFailed: "Не удалось найти файлы",
+    skillTag: "Навык",
     chooseProjectForCommands: "Выберите проект, чтобы увидеть команды",
     chooseModelForCommands: "Выберите модель, чтобы увидеть команды",
   },
@@ -2028,6 +2082,7 @@ export const ru: TranslationResources = {
     hostUnavailable: "Хост загрузки недоступен.",
     cancelled: "Загрузка отменена.",
     failed: "Не удалось загрузить файл.",
+    httpFailed: "Не удалось загрузить файл (HTTP {{status}}).",
     shareFile: "Поделиться файлом",
     shareFileNamed: "Поделиться {{fileName}}",
   },
@@ -2224,6 +2279,7 @@ export const ru: TranslationResources = {
     turnOn: "Включить",
 
     options: "Настройки",
+    host: "Хост",
     refreshFailed: "Не удалось обновить использование",
     noHosts: "Нет подключённых хостов",
     agentError: "Не удалось загрузить использование: {{reason}}",
@@ -2240,6 +2296,8 @@ export const ru: TranslationResources = {
     loginExpired: "Срок входа истёк {{relativeTime}}. {{remedy}}",
     title: "Использование плана",
     refresh: "Обновить",
+    reorderCard: "Переместить {{source}}",
+    showCard: "Показывать {{source}}",
     refreshAll: "Обновить всё",
     refreshing: "Обновление...",
     loading: "Загрузка данных об использовании...",
@@ -2618,6 +2676,12 @@ export const ru: TranslationResources = {
         description: "Показывать оглавление для перехода между запросами",
       },
       sidebar: {
+        view: {
+          title: "Вид боковой панели",
+          label: "Вид",
+          default: "Стандартный вид",
+          unavailable: "Выбранный вид недоступен или отключён. Показан стандартный вид.",
+        },
         header: {
           title: "Верх",
           description:

@@ -78,7 +78,7 @@ async function fixture(gitRepo = false) {
     paseoHome: home,
     service,
     projects: createStub<ProjectRegistry>({ list: async () => data.projects }),
-    workspaces: createStub<WorkspaceRegistry>({ list: async () => data.workspaces }),
+    workspaces: createStub<WorkspaceRegistry>({ listAll: async () => data.workspaces }),
     onError: (error: unknown) => {
       errors.push(error);
     },

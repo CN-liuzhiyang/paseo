@@ -17,15 +17,25 @@ import {
   type PluginProcessRequest,
 } from "./plugin-process-protocol.js";
 import type { UsageSourceRegistration } from "@getpaseo/plugin/server/usage";
-import type { SettingsDefinition, PluginRpcContract } from "@getpaseo/plugin";
+import type {
+  SettingsDefinition,
+  PluginRpcContract,
+  PluginSubscriptionContract,
+} from "@getpaseo/plugin";
 import type {
   ChannelMessage,
   ChannelRegistration,
   PluginHandlerContext,
+  PluginServerContext,
   PluginServerContribution,
 } from "@getpaseo/plugin/server";
 import type { ScheduleChannel } from "@getpaseo/protocol/schedule/types";
 import { randomUUID } from "node:crypto";
+import { assertPluginWireValue } from "@getpaseo/protocol/binary-frames/index";
+import {
+  PluginSubscriptionHandlers,
+  type PluginSubscriptionHandler,
+} from "./subscription-handlers.js";
 import { fileURLToPath } from "node:url";
 import type { ZodType } from "zod";
 import {
@@ -100,6 +110,7 @@ export function createPluginWorker(options: {
     send({ type: "hooks.changed", hooks: hooks.catalog() });
   }, agentTools);
   const handlers = new Map<string, RegisteredRpc>();
+  const subscriptions = new PluginSubscriptionHandlers({ send, sendAndWait });
   const providers = new Map<string, ProviderRegistration>();
   const usageSources = new Map<string, UsageSourceRegistration>();
   const channels = new Map<string, ChannelRegistration>();
@@ -144,11 +155,35 @@ export function createPluginWorker(options: {
     if (!/^[a-z][a-z0-9._-]*$/.test(normalized)) {
       throw new Error(`Invalid plugin RPC method: ${method}`);
     }
-    if (handlers.has(normalized)) {
+    if (handlers.has(normalized) || subscriptions.has(normalized)) {
       throw new Error(`Duplicate plugin RPC method: ${normalized}`);
     }
     return normalized;
   }
+
+  function registerSubscription(
+    contract: PluginSubscriptionContract,
+    handler: PluginSubscriptionHandler,
+  ): void {
+    if (typeof handler !== "function") {
+      throw new Error(`Plugin subscription ${contract.name} must provide a handler`);
+    }
+    const method = validateMethod(contract.name);
+    subscriptions.register({ ...contract, name: method }, handler);
+  }
+
+  // One name serves either an RPC or a subscription; the contract says which.
+  const handle = ((
+    contract: PluginRpcContract | PluginSubscriptionContract,
+    handler: (input: unknown, context: never) => unknown,
+  ) => {
+    if ("event" in contract) {
+      // The subscription handlers parse the input once and pass the result here.
+      registerSubscription(contract, handler as PluginSubscriptionHandler);
+      return;
+    }
+    register(contract, (input, context) => handler(input, context as never));
+  }) as PluginServerContext["handle"];
 
   function register(contract: PluginRpcContract, handler: RpcHandler): void {
     if (typeof handler !== "function") {
@@ -432,8 +467,7 @@ export function createPluginWorker(options: {
         )
       : null;
     const contributedCleanup = contribute({
-      handle: (contract, handler) =>
-        register(contract, (input, context) => handler(contract.input.parse(input), context)),
+      handle,
       registerProvider,
       registerUsageSource,
       registerSettings,
@@ -472,6 +506,7 @@ export function createPluginWorker(options: {
     send({
       type: "ready",
       methods: [...handlers.keys()].sort(),
+      subscriptions: subscriptions.catalog(),
       hooks: hooks.catalog(),
       providers: [...providers.values()]
         .sort((left, right) => left.id.localeCompare(right.id))
@@ -495,6 +530,7 @@ export function createPluginWorker(options: {
       .catch((error) => console.error("Plugin API cleanup failed", error));
     hooks.close();
     agentTools.close();
+    subscriptions.releaseAll();
     for (const pending of pendingProviderConnections.values()) pending.tombstoned = true;
     const currentCleanup = cleanup;
     cleanup = null;
@@ -556,7 +592,8 @@ export function createPluginWorker(options: {
       message.type === "usage.fetch" ||
       message.type === "usage.discover" ||
       message.type === "channel.deliver" ||
-      message.type === "channel.destinations"
+      message.type === "channel.destinations" ||
+      message.type === "subscribe"
     ) {
       send({ type: "error", requestId: message.requestId, error: "Plugin is stopping" });
     } else if (message.type === "provider.connect") {
@@ -658,6 +695,14 @@ export function createPluginWorker(options: {
     }
 
     return false;
+  }
+
+  function handleSubscriptionMessage(
+    message: Extract<PluginProcessRequest, { type: "subscribe" | "unsubscribe" }>,
+  ): void {
+    if (message.type === "unsubscribe") subscriptions.release(message.subscriptionId);
+    else if (paseo) subscriptions.start(message, paseo);
+    else send({ type: "error", requestId: message.requestId, error: "Plugin API unavailable" });
   }
 
   function handleMessage(rawMessage: unknown): void {
@@ -763,6 +808,11 @@ export function createPluginWorker(options: {
       handleHookMessage(message);
       return;
     }
+    if (message.type === "invoke") invoke(message);
+    else handleSubscriptionMessage(message);
+  }
+
+  function invoke(message: Extract<PluginProcessRequest, { type: "invoke" }>): void {
     const registered = handlers.get(message.method);
     if (!registered) {
       send({
@@ -778,7 +828,10 @@ export function createPluginWorker(options: {
         if (!paseo) throw new Error("Plugin Paseo API is unavailable");
         return registered.handler(input, { paseo });
       })
-      .then((output) => registered.contract.output.parseAsync(output))
+      .then((output: unknown) => {
+        assertPluginWireValue(output, "output");
+        return output;
+      })
       .then(
         (output) => send({ type: "result", requestId: message.requestId, output }),
         (error) =>
