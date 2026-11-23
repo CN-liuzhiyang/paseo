@@ -9,6 +9,39 @@ starts a release, `###` starts a section, everything else is ordinary markdown.
 The version must match the tag exactly — `fork-v1.0.2` is `## 1.0.2` — or the
 sheet will not mark it as the one you are running.
 
+## 1.8.0 - 2026-11-23
+
+Carries upstream v0.16.2, up from the previous fork release 1.7.0, whose upstream base was v0.15.4.
+
+### Added
+
+- See and stop background tasks above the composer for Claude Code, Codex and OpenCode v2.
+- Browse, install and update plugins in the built-in gallery; plugins can provide sidebar views, composer controls and live panel subscriptions.
+- Command Center has Workspaces, Files and Actions tabs, with archived workspaces and agent titles included in search.
+
+### Improved
+
+- Changes shows its file tree before diff contents finish loading, and large diffs load in batches.
+- Expanding mobile chat turns and tool groups keeps your reading position; returning to an unchanged chat avoids an extra update message.
+
+### Fixed
+
+- Archiving a detached worktree preserves its commits, and archive Undo restores the workspace during the six-second toast.
+- Desktop updates no longer leave an older daemon running when an earlier Desktop session started it.
+- Collapsed turns keep the finished reply when Claude later answers a background notification, and finish notifications after a daemon restart no longer join separate replies.
+
+### Included fork commits
+
+- Synced upstream through PR #25 (`408c96a9e`); channel delivery, scheduled tasks, automations, app forms, `paseo workspace label` and restored session usage are retained.
+- Adapted registry and storage calls from `list()` to `listAll()` and updated provider-control tests without dropping their scenarios; restored-usage tests now check the stored token counts.
+- Removed the obsolete macOS signing backport, restored plugin delivery documentation and dropped a comment-only patch in `4704dc7`; the fork delta is 216 files / 18086 changed lines against a budget of 216 / 18100.
+
+### Notes
+
+- Update both host and app to use the new background-task and plugin features.
+- Plugins reading the removed `agent.turn.after.timeline` field must fetch the timeline tail with `timeline.refetch({ direction: "tail", limit: 1, wholeTurns: true })` and filter by `event.turnId`.
+- The repaired upstream desktop signing workflow has not been exercised on a macOS runner; app forms and the full background-workspace flow have not had a manual device check for this sync.
+
 ## 1.7.0 - 2026-11-16
 
 Carries upstream v0.15.4, up from the previous fork release 1.6.2, whose upstream base was v0.15.3.
